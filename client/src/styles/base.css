@@ -2,6 +2,8 @@
   --app-max-width: 760px;
   --book-cover-width: 96px;
   --book-cover-height: 144px;
+  --shelf-column-gap: clamp(18px, 4vw, 28px);
+  --shelf-row-gap: 30px;
   --page-bg: #f5f5f7;
   --surface: #ffffff;
   --surface-soft: #fbfaf7;
@@ -174,7 +176,7 @@ h1 {
   display: grid;
   grid-template-columns: repeat(auto-fill, var(--book-cover-width));
   justify-content: space-between;
-  gap: 28px clamp(18px, 5vw, 30px);
+  gap: var(--shelf-row-gap) var(--shelf-column-gap);
   align-items: start;
   padding: 2px 2px 30px;
 }
@@ -182,7 +184,7 @@ h1 {
 .book-shell {
   display: grid;
   width: var(--book-cover-width);
-  min-height: var(--book-cover-height);
+  height: var(--book-cover-height);
   min-width: 0;
   padding: 0;
   border: 0;
@@ -345,14 +347,11 @@ h1 {
   :root {
     --book-cover-width: 92px;
     --book-cover-height: 138px;
+    --shelf-column-gap: 8px;
   }
 
   .app-shell {
     padding-right: 14px;
     padding-left: 14px;
-  }
-
-  .shelf-grid {
-    column-gap: 3px;
   }
 }

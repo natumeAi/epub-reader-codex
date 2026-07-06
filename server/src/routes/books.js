@@ -7,7 +7,7 @@ import {
   isEpubUpload,
   titleFromUpload,
 } from '../services/fileStorage.js';
-import { addBookFileToLibrary } from '../services/bookLibrary.js';
+import { addBookFileToLibrary, deleteBookById, listBooks } from '../services/bookLibrary.js';
 
 const configuredMaxUploadSizeMb = Number(process.env.EPUB_UPLOAD_MAX_MB || 100);
 const maxUploadSizeMb =
@@ -56,6 +56,46 @@ function handleUpload(req, res, next) {
   });
 }
 
+function parseFolderId(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const folderId = Number(value);
+
+  if (!Number.isInteger(folderId) || folderId <= 0) {
+    const error = new Error('folderId must be a positive integer');
+    error.status = 400;
+    throw error;
+  }
+
+  return folderId;
+}
+
+function parseBookId(value) {
+  const bookId = Number(value);
+
+  if (!Number.isInteger(bookId) || bookId <= 0) {
+    const error = new Error('book id must be a positive integer');
+    error.status = 400;
+    throw error;
+  }
+
+  return bookId;
+}
+
+router.get('/', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    const folderId = parseFolderId(req.query.folderId);
+    const books = folderId === undefined ? listBooks(db) : listBooks(db, { folderId });
+
+    res.json({ books });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/', handleUpload, async (req, res, next) => {
   const uploadedPath = req.file?.path;
 
@@ -83,6 +123,24 @@ router.post('/', handleUpload, async (req, res, next) => {
       }
     }
 
+    next(err);
+  }
+});
+
+router.delete('/:id', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    const bookId = parseBookId(req.params.id);
+    const book = deleteBookById(db, bookId);
+
+    if (!book) {
+      const error = new Error('Book not found');
+      error.status = 404;
+      throw error;
+    }
+
+    res.json({ book });
+  } catch (err) {
     next(err);
   }
 });

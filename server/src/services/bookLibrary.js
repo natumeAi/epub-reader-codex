@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import {
   booksDir,
@@ -12,6 +12,7 @@ import { deleteStoredCover, saveBookCover } from './coverStorage.js';
 import { parseEpubDetails } from './epubService.js';
 
 const booksStoragePrefix = 'data/books/';
+const coversStoragePrefix = 'data/covers/';
 const emptyMetadata = {
   title: null,
   author: null,
@@ -25,6 +26,72 @@ function nextShelfSortOrder(db) {
   return db
     .prepare('SELECT COALESCE(MAX(sort_order), 0) + 1000 AS value FROM books WHERE folder_id IS NULL')
     .get().value;
+}
+
+function storagePathToUrl(storedPath, storagePrefix, urlPrefix) {
+  if (!storedPath || !storedPath.startsWith(storagePrefix)) {
+    return null;
+  }
+
+  return `${urlPrefix}/${storedPath.slice(storagePrefix.length).split('/').map(encodeURIComponent).join('/')}`;
+}
+
+function managedBookFilePath(storedPath) {
+  const bookFilePath = path.resolve(toAbsoluteStoragePath(storedPath));
+  const bookRoot = path.resolve(booksDir);
+  const relativePath = path.relative(bookRoot, bookFilePath);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath) || !isEpubFileName(bookFilePath)) {
+    const error = new Error('Stored book file is not managed by the library');
+    error.status = 500;
+    throw error;
+  }
+
+  return bookFilePath;
+}
+
+export function formatBook(row) {
+  return {
+    id: row.id,
+    folderId: row.folder_id,
+    title: row.title,
+    author: row.author,
+    description: row.description,
+    publisher: row.publisher,
+    language: row.language,
+    identifier: row.identifier,
+    fileName: row.file_name,
+    fileSize: row.file_size,
+    coverPath: row.cover_path,
+    coverUrl: storagePathToUrl(row.cover_path, coversStoragePrefix, '/covers'),
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function listBooks(db, options = {}) {
+  const hasFolderId = Object.hasOwn(options, 'folderId');
+
+  const rows = hasFolderId
+    ? db
+        .prepare(
+          `SELECT *
+           FROM books
+           WHERE folder_id = ?
+           ORDER BY sort_order ASC, id ASC`,
+        )
+        .all(options.folderId)
+    : db
+        .prepare(
+          `SELECT *
+           FROM books
+           WHERE folder_id IS NULL
+           ORDER BY sort_order ASC, id ASC`,
+        )
+        .all();
+
+  return rows.map(formatBook);
 }
 
 export async function addBookFileToLibrary(db, filePath, options = {}) {
@@ -160,6 +227,24 @@ export function removeBookFileFromLibrary(db, filePath) {
   }
 
   return changes;
+}
+
+export function deleteBookById(db, id) {
+  const book = db.prepare('SELECT * FROM books WHERE id = ?').get(id);
+
+  if (!book) {
+    return null;
+  }
+
+  const bookFilePath = managedBookFilePath(book.file_path);
+
+  if (existsSync(bookFilePath)) {
+    unlinkSync(bookFilePath);
+  }
+
+  removeBookFileFromLibrary(db, bookFilePath);
+
+  return formatBook(book);
 }
 
 export async function syncBookDirectory(db) {

@@ -8,9 +8,14 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(currentDir, '..', '..');
 
 export const booksDir = path.join(serverRoot, 'data', 'books');
+export const coversDir = path.join(serverRoot, 'data', 'covers');
 
 export function ensureBookDirectory() {
   mkdirSync(booksDir, { recursive: true });
+}
+
+export function ensureCoverDirectory() {
+  mkdirSync(coversDir, { recursive: true });
 }
 
 export function createEpubUploadStorage() {
@@ -33,12 +38,22 @@ export function isEpubUpload(file) {
   return isEpubFileName(file.originalname);
 }
 
+export function fileNameFromUpload(file) {
+  const decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+
+  if (!decodedName || decodedName.includes('\uFFFD')) {
+    return file.originalname;
+  }
+
+  return decodedName;
+}
+
 export function titleFromFileName(fileName) {
   return path.basename(fileName, path.extname(fileName)).trim() || 'Untitled Book';
 }
 
 export function titleFromUpload(file) {
-  return titleFromFileName(file.originalname);
+  return titleFromFileName(fileNameFromUpload(file));
 }
 
 export function toStoredPath(filePath) {

@@ -1,13 +1,17 @@
 import express from 'express';
 import { checkDatabase } from './db/database.js';
 import booksRouter from './routes/books.js';
+import { coversDir, ensureCoverDirectory } from './services/fileStorage.js';
 
 export function createApp({ db } = {}) {
   const app = express();
 
   app.locals.db = db;
 
+  ensureCoverDirectory();
+
   app.use(express.json({ limit: '1mb' }));
+  app.use('/covers', express.static(coversDir));
 
   app.get('/api/health', (req, res) => {
     const database = req.app.locals.db ? checkDatabase(req.app.locals.db) : 'unconfigured';

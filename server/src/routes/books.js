@@ -3,6 +3,7 @@ import multer from 'multer';
 import { Router } from 'express';
 import {
   createEpubUploadStorage,
+  fileNameFromUpload,
   isEpubUpload,
   titleFromUpload,
 } from '../services/fileStorage.js';
@@ -55,7 +56,7 @@ function handleUpload(req, res, next) {
   });
 }
 
-router.post('/', handleUpload, (req, res, next) => {
+router.post('/', handleUpload, async (req, res, next) => {
   const uploadedPath = req.file?.path;
 
   try {
@@ -67,8 +68,8 @@ router.post('/', handleUpload, (req, res, next) => {
       throw error;
     }
 
-    const book = addBookFileToLibrary(db, req.file.path, {
-      fileName: req.file.originalname,
+    const book = await addBookFileToLibrary(db, req.file.path, {
+      fileName: fileNameFromUpload(req.file),
       title: titleFromUpload(req.file),
     });
 

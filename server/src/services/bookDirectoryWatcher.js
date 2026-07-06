@@ -12,7 +12,9 @@ function logSyncError(action, filePath, err) {
 
 export function startBookDirectoryWatcher(db) {
   ensureBookDirectory();
-  syncBookDirectory(db);
+  syncBookDirectory(db).catch((err) => {
+    console.error('Failed to sync EPUB directory on startup:', err);
+  });
 
   const watcher = chokidar.watch(booksDir, {
     awaitWriteFinish: {
@@ -23,20 +25,20 @@ export function startBookDirectoryWatcher(db) {
     ignoreInitial: true,
   });
 
-  watcher.on('add', (filePath) => {
+  watcher.on('add', async (filePath) => {
     if (isEpubFileName(filePath)) {
       try {
-        addBookFileToLibrary(db, filePath);
+        await addBookFileToLibrary(db, filePath);
       } catch (err) {
         logSyncError('add', filePath, err);
       }
     }
   });
 
-  watcher.on('change', (filePath) => {
+  watcher.on('change', async (filePath) => {
     if (isEpubFileName(filePath)) {
       try {
-        addBookFileToLibrary(db, filePath);
+        await addBookFileToLibrary(db, filePath);
       } catch (err) {
         logSyncError('update', filePath, err);
       }
@@ -53,9 +55,9 @@ export function startBookDirectoryWatcher(db) {
     }
   });
 
-  watcher.on('ready', () => {
+  watcher.on('ready', async () => {
     try {
-      syncBookDirectory(db);
+      await syncBookDirectory(db);
     } catch (err) {
       console.error('Failed to sync EPUB directory on watcher ready:', err);
     }

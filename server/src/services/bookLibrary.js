@@ -8,8 +8,18 @@ import {
   toAbsoluteStoragePath,
   toStoredPath,
 } from './fileStorage.js';
+import { deleteStoredCover, saveBookCover } from './coverStorage.js';
+import { parseEpubDetails } from './epubService.js';
 
 const booksStoragePrefix = 'data/books/';
+const emptyMetadata = {
+  title: null,
+  author: null,
+  description: null,
+  publisher: null,
+  language: null,
+  identifier: null,
+};
 
 function nextShelfSortOrder(db) {
   return db
@@ -17,7 +27,7 @@ function nextShelfSortOrder(db) {
     .get().value;
 }
 
-export function addBookFileToLibrary(db, filePath, options = {}) {
+export async function addBookFileToLibrary(db, filePath, options = {}) {
   if (!isEpubFileName(filePath)) {
     return null;
   }
@@ -36,39 +46,103 @@ export function addBookFileToLibrary(db, filePath, options = {}) {
 
   const fileName = options.fileName || path.basename(filePath);
   const storedPath = toStoredPath(filePath);
-  const title = options.title ?? titleFromFileName(fileName);
+  const fallbackTitle = options.title ?? titleFromFileName(fileName);
+  let metadata = emptyMetadata;
+  let coverImage = null;
+  let hasParsedMetadata = false;
+
+  try {
+    const epubDetails = await parseEpubDetails(filePath);
+    metadata = epubDetails.metadata;
+    coverImage = epubDetails.coverImage;
+    hasParsedMetadata = true;
+  } catch {
+    metadata = emptyMetadata;
+  }
+
+  const existing = db.prepare('SELECT * FROM books WHERE file_path = ?').get(storedPath);
+  const title = existing ? metadata.title || options.title || existing.title : metadata.title || fallbackTitle;
+  const author = hasParsedMetadata ? metadata.author : existing?.author;
+  const coverPath = saveBookCover({
+    bookFilePath: filePath,
+    coverImage,
+    title,
+    author,
+  });
 
   return db.transaction(() => {
-    const existing = db.prepare('SELECT * FROM books WHERE file_path = ?').get(storedPath);
-
     if (existing) {
-      if (options.title === undefined) {
-        db.prepare(
-          `UPDATE books
-           SET file_name = ?, file_size = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-        ).run(fileName, fileStat.size, existing.id);
-      } else {
-        db.prepare(
-          `UPDATE books
-           SET title = ?, file_name = ?, file_size = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-        ).run(title, fileName, fileStat.size, existing.id);
-      }
+      const displayFileName = options.fileName || existing.file_name;
+
+      db.prepare(
+        `UPDATE books
+         SET title = @title,
+             author = @author,
+             description = @description,
+             publisher = @publisher,
+             language = @language,
+             identifier = @identifier,
+             file_name = @fileName,
+             file_size = @fileSize,
+             cover_path = @coverPath,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = @id`,
+      ).run({
+        id: existing.id,
+        title,
+        author: hasParsedMetadata ? metadata.author : existing.author,
+        description: hasParsedMetadata ? metadata.description : existing.description,
+        publisher: hasParsedMetadata ? metadata.publisher : existing.publisher,
+        language: hasParsedMetadata ? metadata.language : existing.language,
+        identifier: hasParsedMetadata ? metadata.identifier : existing.identifier,
+        fileName: displayFileName,
+        fileSize: fileStat.size,
+        coverPath,
+      });
 
       return db.prepare('SELECT * FROM books WHERE id = ?').get(existing.id);
     }
 
     const result = db
       .prepare(
-        `INSERT INTO books (title, file_name, file_path, file_size, sort_order)
-         VALUES (@title, @fileName, @filePath, @fileSize, @sortOrder)`,
+        `INSERT INTO books (
+           title,
+           author,
+           description,
+           publisher,
+           language,
+           identifier,
+           file_name,
+           file_path,
+           file_size,
+           cover_path,
+           sort_order
+         )
+         VALUES (
+           @title,
+           @author,
+           @description,
+           @publisher,
+           @language,
+           @identifier,
+           @fileName,
+           @filePath,
+           @fileSize,
+           @coverPath,
+           @sortOrder
+         )`,
       )
       .run({
         title,
+        author: metadata.author,
+        description: metadata.description,
+        publisher: metadata.publisher,
+        language: metadata.language,
+        identifier: metadata.identifier,
         fileName,
         filePath: storedPath,
         fileSize: fileStat.size,
+        coverPath,
         sortOrder: nextShelfSortOrder(db),
       });
 
@@ -78,10 +152,17 @@ export function addBookFileToLibrary(db, filePath, options = {}) {
 
 export function removeBookFileFromLibrary(db, filePath) {
   const storedPath = toStoredPath(filePath);
-  return db.prepare('DELETE FROM books WHERE file_path = ?').run(storedPath).changes;
+  const book = db.prepare('SELECT cover_path FROM books WHERE file_path = ?').get(storedPath);
+  const changes = db.prepare('DELETE FROM books WHERE file_path = ?').run(storedPath).changes;
+
+  if (changes) {
+    deleteStoredCover(book?.cover_path);
+  }
+
+  return changes;
 }
 
-export function syncBookDirectory(db) {
+export async function syncBookDirectory(db) {
   ensureBookDirectory();
 
   const currentBookPaths = new Set();
@@ -94,11 +175,11 @@ export function syncBookDirectory(db) {
 
     const filePath = path.join(booksDir, entry.name);
     currentBookPaths.add(toStoredPath(filePath));
-    addBookFileToLibrary(db, filePath);
+    await addBookFileToLibrary(db, filePath);
   }
 
   const trackedBooks = db
-    .prepare('SELECT id, file_path FROM books WHERE file_path LIKE ?')
+    .prepare('SELECT id, file_path, cover_path FROM books WHERE file_path LIKE ?')
     .all(`${booksStoragePrefix}%`);
 
   const removeMissingBook = db.prepare('DELETE FROM books WHERE id = ?');
@@ -108,6 +189,7 @@ export function syncBookDirectory(db) {
 
     if (!currentBookPaths.has(book.file_path) && !existsSync(absolutePath)) {
       removeMissingBook.run(book.id);
+      deleteStoredCover(book.cover_path);
     }
   }
 }

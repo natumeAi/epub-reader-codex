@@ -1,5 +1,6 @@
 import express from 'express';
 import { checkDatabase } from './db/database.js';
+import booksRouter from './routes/books.js';
 
 export function createApp({ db } = {}) {
   const app = express();
@@ -17,6 +18,8 @@ export function createApp({ db } = {}) {
       database,
     });
   });
+
+  app.use('/api/books', booksRouter);
 
   app.use((req, res) => {
     res.status(404).json({

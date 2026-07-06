@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(currentDir, '..', '..');
+const migrationsDir = path.join(currentDir, 'migrations');
 
 export const defaultDatabasePath = path.join(serverRoot, 'data', 'library.sqlite');
 
@@ -35,7 +36,33 @@ export function initializeDatabase(db) {
     );
   `);
 
+  runMigrations(db);
+
   return db;
+}
+
+export function runMigrations(db) {
+  const appliedMigrations = new Set(
+    db.prepare('SELECT name FROM schema_migrations').all().map((row) => row.name),
+  );
+
+  const migrationFiles = readdirSync(migrationsDir)
+    .filter((fileName) => fileName.endsWith('.sql'))
+    .sort();
+
+  const applyMigration = db.transaction((fileName, sql) => {
+    db.exec(sql);
+    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(fileName);
+  });
+
+  for (const fileName of migrationFiles) {
+    if (appliedMigrations.has(fileName)) {
+      continue;
+    }
+
+    const sql = readFileSync(path.join(migrationsDir, fileName), 'utf8');
+    applyMigration(fileName, sql);
+  }
 }
 
 export function createDatabase(options = {}) {

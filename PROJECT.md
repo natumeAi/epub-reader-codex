@@ -76,7 +76,7 @@ epub-reader/
       utils/
     data/
       library.sqlite
-      uploads/
+      books/
       covers/
   client/
     package.json
@@ -101,7 +101,7 @@ epub-reader/
 
 - `client/` 放 React + Vite 前端。
 - `server/` 放 Express 后端、SQLite 数据库访问、EPUB 解析和文件存储逻辑。
-- `server/data/uploads/` 存放上传的 EPUB 文件。
+- `server/data/books/` 存放 EPUB 文件；支持按钮上传，也支持手动复制 EPUB 到目录后自动入库，删除文件后自动移除对应书籍记录。
 - `server/data/covers/` 存放提取或生成的封面图片。
 - `server/data/library.sqlite` 是 SQLite 数据库文件。
 - Docker 部署时需要把 `server/data/` 挂载为持久化目录。
@@ -160,9 +160,10 @@ epub-reader/
 - [x] 初始化前端 React + Vite 项目
 - [x] 初始化后端 Node.js + Express 项目
 - [x] 配置 SQLite 数据库
-- [ ] 设计数据库表结构：书籍、文件夹、排序、阅读进度
-- [ ] 实现 EPUB 上传接口
-- [ ] 实现 EPUB 文件存储
+- [x] 设计数据库表结构：书籍、文件夹、排序、阅读进度
+- [x] 实现 EPUB 上传接口
+- [x] 实现 EPUB 文件存储
+- [x] 监控 EPUB 文件目录变化并同步添加或删除书籍
 - [ ] 实现 EPUB 元数据解析
 - [ ] 实现 EPUB 封面提取或生成
 - [ ] 实现书籍列表接口

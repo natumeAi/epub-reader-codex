@@ -23,3 +23,19 @@ export async function uploadBook(file) {
 
   return response.json();
 }
+
+export async function updateBookOrder(bookIds) {
+  const response = await fetch('/api/books/order', {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ bookIds }),
+  });
+
+  if (!response.ok) {
+    throw new Error(response.status === 409 ? '书架已变化，请刷新后重试' : '无法保存书架顺序');
+  }
+
+  return response.json();
+}

@@ -7,7 +7,12 @@ import {
   isEpubUpload,
   titleFromUpload,
 } from '../services/fileStorage.js';
-import { addBookFileToLibrary, deleteBookById, listBooks } from '../services/bookLibrary.js';
+import {
+  addBookFileToLibrary,
+  deleteBookById,
+  listBooks,
+  updateShelfBookOrder,
+} from '../services/bookLibrary.js';
 
 const configuredMaxUploadSizeMb = Number(process.env.EPUB_UPLOAD_MAX_MB || 100);
 const maxUploadSizeMb =
@@ -84,11 +89,41 @@ function parseBookId(value) {
   return bookId;
 }
 
+function parseBookIds(value) {
+  if (!Array.isArray(value)) {
+    const error = new Error('bookIds must be an array');
+    error.status = 400;
+    throw error;
+  }
+
+  const bookIds = value.map(parseBookId);
+
+  if (new Set(bookIds).size !== bookIds.length) {
+    const error = new Error('bookIds must be unique');
+    error.status = 400;
+    throw error;
+  }
+
+  return bookIds;
+}
+
 router.get('/', (req, res, next) => {
   try {
     const db = requireDatabase(req);
     const folderId = parseFolderId(req.query.folderId);
     const books = folderId === undefined ? listBooks(db) : listBooks(db, { folderId });
+
+    res.json({ books });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/order', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    const bookIds = parseBookIds(req.body.bookIds);
+    const books = updateShelfBookOrder(db, bookIds);
 
     res.json({ books });
   } catch (err) {

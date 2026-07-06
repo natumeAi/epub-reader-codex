@@ -94,6 +94,45 @@ export function listBooks(db, options = {}) {
   return rows.map(formatBook);
 }
 
+export function updateShelfBookOrder(db, bookIds) {
+  const currentBookIds = db
+    .prepare(
+      `SELECT id
+       FROM books
+       WHERE folder_id IS NULL
+       ORDER BY sort_order ASC, id ASC`,
+    )
+    .all()
+    .map((book) => book.id);
+
+  const requestedBookIds = new Set(bookIds);
+  const hasCurrentShelf =
+    currentBookIds.length === requestedBookIds.size &&
+    currentBookIds.every((bookId) => requestedBookIds.has(bookId));
+
+  if (!hasCurrentShelf) {
+    const error = new Error('Book order is out of date');
+    error.status = 409;
+    throw error;
+  }
+
+  const updateBookOrder = db.prepare(
+    `UPDATE books
+     SET sort_order = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?
+       AND folder_id IS NULL`,
+  );
+
+  db.transaction(() => {
+    bookIds.forEach((bookId, index) => {
+      updateBookOrder.run((index + 1) * 1000, bookId);
+    });
+  })();
+
+  return listBooks(db);
+}
+
 export async function addBookFileToLibrary(db, filePath, options = {}) {
   if (!isEpubFileName(filePath)) {
     return null;

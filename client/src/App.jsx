@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   closestCenter,
   DndContext,
@@ -16,7 +16,128 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { listBooks, updateBookOrder, uploadBook } from './api/books.js';
+import {
+  createFolderFromBooks,
+  listShelfItems,
+  updateShelfItemOrder,
+  uploadBook,
+} from './api/books.js';
+
+const centerZoneRatio = 0.56;
+const sortIntentDelayMs = 300;
+
+function shelfItemKey(item) {
+  return `${item.type}:${item.id}`;
+}
+
+function toShelfOrderItem(item) {
+  return {
+    type: item.type,
+    id: item.id,
+  };
+}
+
+function normalizeShelfItem(item) {
+  return {
+    ...item,
+    key: shelfItemKey(item),
+  };
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+function centerRect(rect) {
+  const xInset = (rect.width * (1 - centerZoneRatio)) / 2;
+  const yInset = (rect.height * (1 - centerZoneRatio)) / 2;
+
+  return {
+    left: rect.left + xInset,
+    right: rect.right - xInset,
+    top: rect.top + yInset,
+    bottom: rect.bottom - yInset,
+  };
+}
+
+function distanceToRectCenter(point, rect) {
+  const x = rect.left + rect.width / 2 - point.x;
+  const y = rect.top + rect.height / 2 - point.y;
+
+  return Math.hypot(x, y);
+}
+
+function activeCollision(activeId, droppableContainers) {
+  const activeContainer = droppableContainers.find(
+    (droppableContainer) => String(droppableContainer.id) === String(activeId),
+  );
+
+  return activeContainer
+    ? [
+        {
+          id: activeContainer.id,
+          data: {
+            droppableContainer: activeContainer,
+            value: 0,
+          },
+        },
+      ]
+    : [];
+}
+
+function collisionForKey(targetKey, droppableContainers) {
+  const targetContainer = droppableContainers.find(
+    (droppableContainer) => String(droppableContainer.id) === String(targetKey),
+  );
+
+  return targetContainer
+    ? [
+        {
+          id: targetContainer.id,
+          data: {
+            droppableContainer: targetContainer,
+            value: 0,
+          },
+        },
+      ]
+    : [];
+}
+
+function isBeforeTarget(point, rect) {
+  const centerX = rect.left + rect.width / 2;
+
+  if (point.y < rect.top) {
+    return true;
+  }
+
+  if (point.y > rect.bottom) {
+    return false;
+  }
+
+  return point.x < centerX;
+}
+
+function sortTargetKeyFromPoint({ activeKey, point, shelfItems, targetKey, targetRect }) {
+  const orderedKeys = shelfItems.map((item) => item.key);
+  const oldIndex = orderedKeys.indexOf(activeKey);
+  const targetIndex = orderedKeys.indexOf(targetKey);
+
+  if (oldIndex < 0 || targetIndex < 0) {
+    return targetKey;
+  }
+
+  const beforeTarget = isBeforeTarget(point, targetRect);
+  const desiredIndex = beforeTarget
+    ? oldIndex < targetIndex
+      ? targetIndex - 1
+      : targetIndex
+    : oldIndex < targetIndex
+      ? targetIndex
+      : targetIndex + 1;
+  const clampedIndex = Math.max(0, Math.min(orderedKeys.length - 1, desiredIndex));
+
+  return orderedKeys[clampedIndex];
+}
 
 function BookCover({ book }) {
   if (book.coverUrl) {
@@ -38,7 +159,43 @@ function BookCover({ book }) {
   );
 }
 
-function SortableBook({ book, disabled }) {
+function FolderCover({ folder }) {
+  const previewBooks = folder.previewBooks || [];
+
+  return (
+    <span className="folder-cover">
+      <span className="folder-preview-grid" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, index) => {
+          const previewBook = previewBooks[index];
+
+          return (
+            <span className="folder-preview-slot" key={index}>
+              {previewBook?.coverUrl ? (
+                <img className="folder-preview-image" src={previewBook.coverUrl} alt="" loading="lazy" />
+              ) : (
+                <span className="folder-preview-placeholder" />
+              )}
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
+
+function ShelfItemCover({ item }) {
+  if (item.type === 'folder') {
+    return <FolderCover folder={item.folder} />;
+  }
+
+  return (
+    <span className="book-cover">
+      <BookCover book={item.book} />
+    </span>
+  );
+}
+
+function SortableShelfItem({ disabled, dragIntent, item }) {
   const {
     attributes,
     isDragging,
@@ -46,32 +203,56 @@ function SortableBook({ book, disabled }) {
     setNodeRef,
     transform,
     transition,
-  } = useSortable({ id: book.id, disabled });
+  } = useSortable({
+    id: item.key,
+    data: {
+      item,
+      type: item.type,
+    },
+    disabled,
+  });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
+  const isIntentTarget = dragIntent?.targetKey === item.key;
+  const className = [
+    'book-shell',
+    'shelf-item',
+    item.type === 'folder' ? 'is-folder-item' : '',
+    isDragging ? 'is-dragging' : '',
+    isIntentTarget && dragIntent.type === 'absorb' ? 'is-absorb-target' : '',
+    isIntentTarget && dragIntent.type === 'merge' ? 'is-merge-target' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const label =
+    item.type === 'folder'
+      ? item.folder?.name || '文件夹'
+      : item.book?.title || '未命名书籍';
 
   return (
     <button
       ref={setNodeRef}
-      className={`book-shell${isDragging ? ' is-dragging' : ''}`}
+      className={className}
       style={style}
       type="button"
-      aria-label={book.title || '未命名书籍'}
+      aria-label={label}
       {...attributes}
       {...listeners}
     >
-      <span className="book-cover">
-        <BookCover book={book} />
-      </span>
+      <ShelfItemCover item={item} />
     </button>
   );
 }
 
 function App() {
   const fileInputRef = useRef(null);
-  const [books, setBooks] = useState([]);
+  const dragIntentFrameRef = useRef(null);
+  const dragIntentRef = useRef({ type: 'idle', targetKey: null });
+  const sortIntentRef = useRef({ startedAt: 0, targetKey: null });
+  const [shelfItems, setShelfItems] = useState([]);
+  const [dragIntent, setDragIntent] = useState({ type: 'idle', targetKey: null });
   const [hasLoadedShelf, setHasLoadedShelf] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -93,14 +274,157 @@ function App() {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+  const publishDragIntent = useCallback((intent) => {
+    const nextIntent = intent || { type: 'idle', targetKey: null };
+    const currentIntent = dragIntentRef.current;
+
+    if (currentIntent.type === nextIntent.type && currentIntent.targetKey === nextIntent.targetKey) {
+      return;
+    }
+
+    dragIntentRef.current = nextIntent;
+
+    if (dragIntentFrameRef.current) {
+      return;
+    }
+
+    dragIntentFrameRef.current = requestAnimationFrame(() => {
+      dragIntentFrameRef.current = null;
+      setDragIntent(dragIntentRef.current);
+    });
+  }, []);
+  const shelfCollisionDetection = useCallback(
+    (args) => {
+      const { active, collisionRect, droppableContainers, droppableRects } = args;
+      const activeType = active.data.current?.type;
+      const activeCenter = {
+        x: collisionRect.left + collisionRect.width / 2,
+        y: collisionRect.top + collisionRect.height / 2,
+      };
+      let lockedTarget = null;
+
+      for (const droppableContainer of droppableContainers) {
+        const targetKey = String(droppableContainer.id);
+
+        if (targetKey === String(active.id)) {
+          continue;
+        }
+
+        const rect = droppableRects.get(droppableContainer.id);
+
+        if (!rect || !pointInRect(activeCenter, rect)) {
+          continue;
+        }
+
+        const distance = distanceToRectCenter(activeCenter, rect);
+
+        if (!lockedTarget || distance < lockedTarget.distance) {
+          lockedTarget = {
+            distance,
+            key: targetKey,
+            rect,
+            type: droppableContainer.data.current?.type,
+          };
+        }
+      }
+
+      if (lockedTarget) {
+        const canCreateFolder = activeType === 'book' && lockedTarget.type === 'book';
+        const isCenterTarget = pointInRect(activeCenter, centerRect(lockedTarget.rect));
+
+        if (canCreateFolder && isCenterTarget) {
+          publishDragIntent({
+            type: 'merge',
+            targetKey: lockedTarget.key,
+          });
+
+          return activeCollision(active.id, droppableContainers);
+        }
+
+        publishDragIntent({ type: 'sort', targetKey: null });
+        const sortTargetKey = sortTargetKeyFromPoint({
+          activeKey: String(active.id),
+          point: activeCenter,
+          shelfItems,
+          targetKey: lockedTarget.key,
+          targetRect: lockedTarget.rect,
+        });
+
+        if (sortTargetKey === String(active.id)) {
+          sortIntentRef.current = { startedAt: 0, targetKey: null };
+          return activeCollision(active.id, droppableContainers);
+        }
+
+        const now = performance.now();
+
+        if (sortIntentRef.current.targetKey !== sortTargetKey) {
+          sortIntentRef.current = {
+            startedAt: now,
+            targetKey: sortTargetKey,
+          };
+
+          return activeCollision(active.id, droppableContainers);
+        }
+
+        if (now - sortIntentRef.current.startedAt < sortIntentDelayMs) {
+          return activeCollision(active.id, droppableContainers);
+        }
+
+        return collisionForKey(sortTargetKey, droppableContainers);
+      }
+
+      publishDragIntent({ type: 'sort', targetKey: null });
+      const sortCollisions = closestCenter(args);
+      const nearestSortCollision = sortCollisions.find(
+        (collision) => String(collision.id) !== String(active.id),
+      );
+      const nearestSortTargetKey = nearestSortCollision?.id ? String(nearestSortCollision.id) : null;
+      const nearestSortTargetRect = nearestSortTargetKey
+        ? droppableRects.get(nearestSortTargetKey)
+        : null;
+      const sortTargetKey =
+        nearestSortTargetKey && nearestSortTargetRect
+          ? sortTargetKeyFromPoint({
+              activeKey: String(active.id),
+              point: activeCenter,
+              shelfItems,
+              targetKey: nearestSortTargetKey,
+              targetRect: nearestSortTargetRect,
+            })
+          : null;
+
+      if (!sortTargetKey || sortTargetKey === String(active.id)) {
+        sortIntentRef.current = { startedAt: 0, targetKey: null };
+        return sortCollisions;
+      }
+
+      const now = performance.now();
+
+      if (sortIntentRef.current.targetKey !== sortTargetKey) {
+        sortIntentRef.current = {
+          startedAt: now,
+          targetKey: sortTargetKey,
+        };
+
+        return activeCollision(active.id, droppableContainers);
+      }
+
+      if (now - sortIntentRef.current.startedAt < sortIntentDelayMs) {
+        return activeCollision(active.id, droppableContainers);
+      }
+
+      return collisionForKey(sortTargetKey, droppableContainers);
+    },
+    [publishDragIntent, shelfItems],
+  );
 
   async function loadShelf() {
     setIsLoading(true);
     setError('');
 
     try {
-      const data = await listBooks();
-      setBooks(data.books || []);
+      const data = await listShelfItems();
+      setShelfItems((data.items || []).map(normalizeShelfItem));
     } catch (err) {
       setError(err.message || '无法加载书架');
     } finally {
@@ -112,6 +436,15 @@ function App() {
   useEffect(() => {
     loadShelf();
   }, []);
+
+  useEffect(
+    () => () => {
+      if (dragIntentFrameRef.current) {
+        cancelAnimationFrame(dragIntentFrameRef.current);
+      }
+    },
+    [],
+  );
 
   async function handleFileChange(event) {
     const file = event.target.files?.[0];
@@ -134,32 +467,72 @@ function App() {
     }
   }
 
+  function clearDragIntent() {
+    dragIntentRef.current = { type: 'idle', targetKey: null };
+    sortIntentRef.current = { startedAt: 0, targetKey: null };
+    setDragIntent(dragIntentRef.current);
+  }
+
   async function handleShelfDragEnd(event) {
     const { active, over } = event;
+    const finalDragIntent = dragIntentRef.current;
 
-    if (!over || active.id === over.id || isSavingOrder) {
+    clearDragIntent();
+
+    if (isSavingOrder) {
       return;
     }
 
-    const oldIndex = books.findIndex((book) => book.id === active.id);
-    const newIndex = books.findIndex((book) => book.id === over.id);
+    const activeItem = shelfItems.find((item) => item.key === String(active.id));
+    const targetItem = shelfItems.find((item) => item.key === finalDragIntent.targetKey);
+
+    if (
+      finalDragIntent.type === 'merge' &&
+      activeItem?.type === 'book' &&
+      targetItem?.type === 'book' &&
+      activeItem.key !== targetItem.key
+    ) {
+      const previousShelfItems = shelfItems;
+
+      setIsSavingOrder(true);
+      setError('');
+
+      try {
+        const data = await createFolderFromBooks(activeItem.id, targetItem.id);
+        setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
+      } catch (err) {
+        setShelfItems(previousShelfItems);
+        setError(err.message || '无法创建文件夹');
+      } finally {
+        setIsSavingOrder(false);
+      }
+
+      return;
+    }
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = shelfItems.findIndex((item) => item.key === String(active.id));
+    const newIndex = shelfItems.findIndex((item) => item.key === String(over.id));
 
     if (oldIndex < 0 || newIndex < 0) {
       return;
     }
 
-    const previousBooks = books;
-    const reorderedBooks = arrayMove(books, oldIndex, newIndex);
+    const previousShelfItems = shelfItems;
+    const reorderedShelfItems = arrayMove(shelfItems, oldIndex, newIndex);
 
-    setBooks(reorderedBooks);
+    setShelfItems(reorderedShelfItems);
     setIsSavingOrder(true);
     setError('');
 
     try {
-      const data = await updateBookOrder(reorderedBooks.map((book) => book.id));
-      setBooks(data.books || reorderedBooks);
+      const data = await updateShelfItemOrder(reorderedShelfItems.map(toShelfOrderItem));
+      setShelfItems((data.items || reorderedShelfItems).map(normalizeShelfItem));
     } catch (err) {
-      setBooks(previousBooks);
+      setShelfItems(previousShelfItems);
       setError(err.message || '无法保存书架顺序');
     } finally {
       setIsSavingOrder(false);
@@ -213,16 +586,22 @@ function App() {
               </div>
             ))}
           </div>
-        ) : books.length ? (
+        ) : shelfItems.length ? (
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={shelfCollisionDetection}
+            onDragCancel={clearDragIntent}
             onDragEnd={handleShelfDragEnd}
           >
-            <SortableContext items={books.map((book) => book.id)} strategy={rectSortingStrategy}>
-              <div className="shelf-grid" aria-label="书籍列表">
-                {books.map((book) => (
-                  <SortableBook book={book} disabled={isSavingOrder} key={book.id} />
+            <SortableContext items={shelfItems.map((item) => item.key)} strategy={rectSortingStrategy}>
+              <div className="shelf-grid" aria-label="书架列表">
+                {shelfItems.map((item) => (
+                  <SortableShelfItem
+                    disabled={isSavingOrder}
+                    dragIntent={dragIntent}
+                    item={item}
+                    key={item.key}
+                  />
                 ))}
               </div>
             </SortableContext>

@@ -24,7 +24,14 @@ const emptyMetadata = {
 
 function nextShelfSortOrder(db) {
   return db
-    .prepare('SELECT COALESCE(MAX(sort_order), 0) + 1000 AS value FROM books WHERE folder_id IS NULL')
+    .prepare(
+      `SELECT COALESCE(MAX(sort_order), 0) + 1000 AS value
+       FROM (
+         SELECT sort_order FROM books WHERE folder_id IS NULL
+         UNION ALL
+         SELECT sort_order FROM folders
+       )`,
+    )
     .get().value;
 }
 
@@ -258,11 +265,23 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
 
 export function removeBookFileFromLibrary(db, filePath) {
   const storedPath = toStoredPath(filePath);
-  const book = db.prepare('SELECT cover_path FROM books WHERE file_path = ?').get(storedPath);
+  const book = db.prepare('SELECT folder_id, cover_path FROM books WHERE file_path = ?').get(storedPath);
   const changes = db.prepare('DELETE FROM books WHERE file_path = ?').run(storedPath).changes;
 
   if (changes) {
     deleteStoredCover(book?.cover_path);
+
+    if (book?.folder_id) {
+      db.prepare(
+        `DELETE FROM folders
+         WHERE id = ?
+           AND NOT EXISTS (
+             SELECT 1
+             FROM books
+             WHERE folder_id = folders.id
+           )`,
+      ).run(book.folder_id);
+    }
   }
 
   return changes;

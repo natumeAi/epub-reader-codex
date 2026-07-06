@@ -1,6 +1,7 @@
 import express from 'express';
 import { checkDatabase } from './db/database.js';
 import booksRouter from './routes/books.js';
+import foldersRouter from './routes/folders.js';
 import { coversDir, ensureCoverDirectory } from './services/fileStorage.js';
 
 export function createApp({ db } = {}) {
@@ -24,6 +25,7 @@ export function createApp({ db } = {}) {
   });
 
   app.use('/api/books', booksRouter);
+  app.use('/api/folders', foldersRouter);
 
   app.use((req, res) => {
     res.status(404).json({

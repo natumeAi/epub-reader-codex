@@ -156,10 +156,10 @@ epub-reader/
 
 - [x] 创建项目记忆文件 `PROJECT.md`
 - [x] 补充编码约定和跨对话开发规则
-- [ ] 初始化项目目录结构
-- [ ] 初始化前端 React + Vite 项目
-- [ ] 初始化后端 Node.js + Express 项目
-- [ ] 配置 SQLite 数据库
+- [x] 初始化项目目录结构
+- [x] 初始化前端 React + Vite 项目
+- [x] 初始化后端 Node.js + Express 项目
+- [x] 配置 SQLite 数据库
 - [ ] 设计数据库表结构：书籍、文件夹、排序、阅读进度
 - [ ] 实现 EPUB 上传接口
 - [ ] 实现 EPUB 文件存储

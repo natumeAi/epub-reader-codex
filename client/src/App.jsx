@@ -15,7 +15,8 @@ function BookCover({ book }) {
 
   return (
     <div className="book-cover-placeholder">
-      <span>{book.title || '未命名书籍'}</span>
+      <span className="placeholder-spine" aria-hidden="true" />
+      <span className="placeholder-mark" aria-hidden="true" />
     </div>
   );
 }
@@ -23,6 +24,7 @@ function BookCover({ book }) {
 function App() {
   const fileInputRef = useRef(null);
   const [books, setBooks] = useState([]);
+  const [hasLoadedShelf, setHasLoadedShelf] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState('');
@@ -37,6 +39,7 @@ function App() {
     } catch (err) {
       setError(err.message || '无法加载书架');
     } finally {
+      setHasLoadedShelf(true);
       setIsLoading(false);
     }
   }
@@ -82,7 +85,7 @@ function App() {
             disabled={isUploading}
             aria-label="上传 EPUB"
           >
-            <span aria-hidden="true">+</span>
+            <span className="upload-button-icon" aria-hidden="true" />
           </button>
           <input
             ref={fileInputRef}
@@ -99,13 +102,13 @@ function App() {
           </p>
         ) : null}
 
-        {isUploading ? (
+        {isUploading || (isLoading && hasLoadedShelf) ? (
           <p className="status-message" role="status">
-            正在上传
+            {isUploading ? '正在上传' : '正在更新书架'}
           </p>
         ) : null}
 
-        {isLoading ? (
+        {isLoading && !hasLoadedShelf ? (
           <div className="shelf-grid" aria-label="书架加载中">
             {Array.from({ length: 6 }).map((_, index) => (
               <div className="book-shell" key={index}>

@@ -1,6 +1,18 @@
 :root {
-  color: #241f1a;
-  background: #f8f5ef;
+  --app-max-width: 760px;
+  --book-cover-width: 96px;
+  --book-cover-height: 144px;
+  --page-bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-soft: #fbfaf7;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --accent: #007aff;
+  --danger: #c0392b;
+  --book-shadow: rgba(38, 31, 24, 0.2);
+
+  color: var(--text-primary);
+  background: var(--page-bg);
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -23,8 +35,8 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0) 180px),
-    #f8f5ef;
+    linear-gradient(180deg, #ffffff 0, rgba(255, 255, 255, 0.82) 118px, rgba(255, 255, 255, 0) 260px),
+    linear-gradient(180deg, var(--page-bg), #efeff4);
 }
 
 button,
@@ -39,62 +51,96 @@ button {
 }
 
 .app-shell {
+  width: min(100%, var(--app-max-width));
   min-height: 100svh;
-  padding: max(18px, env(safe-area-inset-top)) 18px
-    max(24px, env(safe-area-inset-bottom));
+  margin: 0 auto;
+  padding: max(22px, env(safe-area-inset-top)) 18px
+    max(28px, env(safe-area-inset-bottom));
 }
 
 .library-home {
   display: flex;
   min-height: calc(100svh - 42px);
   flex-direction: column;
-  gap: 22px;
+  gap: 24px;
 }
 
 .library-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 20px;
+  padding: 4px 0 2px;
 }
 
 .eyebrow {
-  margin: 0 0 6px;
-  color: #8f5f36;
-  font-size: 13px;
-  font-weight: 700;
+  margin: 0 0 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
   line-height: 1.2;
+  text-transform: uppercase;
 }
 
 h1 {
   margin: 0;
-  font-size: 34px;
+  font-size: 35px;
   font-weight: 800;
-  line-height: 1.05;
+  line-height: 1;
 }
 
 .upload-button {
   display: grid;
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   flex: 0 0 auto;
   place-items: center;
   border: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.92);
   box-shadow:
-    0 10px 24px rgba(70, 54, 34, 0.12),
-    inset 0 0 0 1px rgba(72, 55, 35, 0.08);
-  color: #a86126;
+    0 12px 28px rgba(47, 47, 51, 0.12),
+    inset 0 0 0 1px rgba(29, 29, 31, 0.08);
+  color: var(--accent);
   cursor: pointer;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    opacity 140ms ease;
   -webkit-tap-highlight-color: transparent;
 }
 
-.upload-button span {
-  margin-top: -2px;
-  font-size: 30px;
-  font-weight: 300;
-  line-height: 1;
+.upload-button:active {
+  transform: scale(0.96);
+}
+
+.upload-button:focus-visible {
+  outline: 3px solid rgba(0, 122, 255, 0.24);
+  outline-offset: 3px;
+}
+
+.upload-button-icon {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.upload-button-icon::before,
+.upload-button-icon::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.upload-button-icon::after {
+  transform: translate(-50%, -50%) rotate(90deg);
 }
 
 .upload-button:disabled {
@@ -113,58 +159,88 @@ h1 {
 }
 
 .status-message {
-  margin: -8px 0 0;
-  color: #75685a;
+  margin: -10px 0 0;
+  color: var(--text-secondary);
   font-size: 14px;
+  font-weight: 500;
   line-height: 1.35;
 }
 
 .error-message {
-  color: #ad3e2a;
+  color: var(--danger);
 }
 
 .shelf-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px 17px;
+  grid-template-columns: repeat(auto-fill, var(--book-cover-width));
+  justify-content: space-between;
+  gap: 28px clamp(18px, 5vw, 30px);
   align-items: start;
-  padding: 4px 2px 28px;
+  padding: 2px 2px 30px;
 }
 
 .book-shell {
-  display: block;
+  display: grid;
+  width: var(--book-cover-width);
+  min-height: var(--book-cover-height);
   min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
+  outline: 0;
   -webkit-tap-highlight-color: transparent;
+}
+
+.book-shell:focus-visible .book-cover {
+  outline: 3px solid rgba(0, 122, 255, 0.3);
+  outline-offset: 5px;
+}
+
+.book-shell:active .book-cover {
+  transform: translateY(2px) scale(0.985);
 }
 
 .book-cover {
   position: relative;
   display: block;
-  width: 100%;
-  aspect-ratio: 0.68;
+  width: var(--book-cover-width);
+  height: var(--book-cover-height);
   overflow: hidden;
-  border-radius: 4px 8px 8px 4px;
-  background: #e8ded1;
+  border-radius: 4px 9px 9px 4px;
+  background: #e5e2dc;
   box-shadow:
-    0 13px 22px rgba(54, 39, 24, 0.18),
-    0 2px 5px rgba(54, 39, 24, 0.12);
+    0 18px 30px var(--book-shadow),
+    0 3px 7px rgba(38, 31, 24, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  transform-origin: center bottom;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .book-cover::before {
   position: absolute;
   inset: 0 auto 0 0;
   z-index: 1;
-  width: 14%;
+  width: 15%;
   background: linear-gradient(
     90deg,
-    rgba(34, 21, 12, 0.2),
-    rgba(255, 255, 255, 0.08),
+    rgba(18, 18, 20, 0.24),
+    rgba(255, 255, 255, 0.12),
     transparent
   );
+  content: "";
+  pointer-events: none;
+}
+
+.book-cover::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.05));
   content: "";
   pointer-events: none;
 }
@@ -177,29 +253,33 @@ h1 {
 }
 
 .book-cover-placeholder {
-  display: grid;
+  position: relative;
+  display: block;
   width: 100%;
   height: 100%;
-  place-items: center;
-  padding: 16px 10px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 48%),
-    linear-gradient(160deg, #dbc8aa, #947a62);
-  color: #fffaf4;
-  text-align: center;
+    linear-gradient(135deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 44%),
+    linear-gradient(160deg, #f0b35e 0, #bf6b43 48%, #5b5f78 100%);
 }
 
-.book-cover-placeholder span {
-  display: -webkit-box;
-  overflow: hidden;
-  max-width: 100%;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
-  font-size: clamp(12px, 3.4vw, 15px);
-  font-weight: 700;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-  text-shadow: 0 1px 8px rgba(37, 26, 16, 0.28);
+.placeholder-spine {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 18%;
+  background: rgba(25, 20, 22, 0.18);
+}
+
+.placeholder-mark {
+  position: absolute;
+  top: 28px;
+  right: 20px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow:
+    0 34px 0 rgba(255, 255, 255, 0.2),
+    -24px 54px 0 rgba(255, 255, 255, 0.16);
 }
 
 .skeleton-cover {
@@ -216,8 +296,8 @@ h1 {
   flex: 1;
   align-content: center;
   justify-items: center;
-  gap: 18px;
-  color: #675b4d;
+  gap: 16px;
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -231,14 +311,24 @@ h1 {
 .empty-cover {
   width: min(42vw, 156px);
   aspect-ratio: 0.68;
-  border: 1px solid rgba(87, 68, 49, 0.16);
+  border: 1px solid rgba(29, 29, 31, 0.1);
   border-radius: 6px 10px 10px 6px;
   background:
-    linear-gradient(90deg, rgba(35, 24, 15, 0.18), transparent 16%),
-    linear-gradient(145deg, #f2d2a3, #b86f43 54%, #56392e);
+    linear-gradient(90deg, rgba(29, 29, 31, 0.18), transparent 16%),
+    linear-gradient(145deg, #f8d98f, #cf6e4a 52%, #45506a);
   box-shadow:
-    0 18px 36px rgba(60, 42, 25, 0.18),
+    0 20px 40px rgba(47, 47, 51, 0.16),
     inset 8px 0 14px rgba(255, 255, 255, 0.18);
+}
+
+@media (hover: hover) {
+  .book-shell:hover .book-cover {
+    box-shadow:
+      0 22px 34px rgba(38, 31, 24, 0.22),
+      0 5px 10px rgba(38, 31, 24, 0.14),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+    transform: translateY(-2px);
+  }
 }
 
 @keyframes shelf-loading {
@@ -248,5 +338,21 @@ h1 {
 
   to {
     background-position: -80% 0, 0 0;
+  }
+}
+
+@media (max-width: 374px) {
+  :root {
+    --book-cover-width: 92px;
+    --book-cover-height: 138px;
+  }
+
+  .app-shell {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .shelf-grid {
+    column-gap: 3px;
   }
 }

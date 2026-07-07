@@ -143,6 +143,30 @@ export async function updateShelfItemOrder(items) {
   return response.json();
 }
 
+export async function getReadingProgress(bookId) {
+  const response = await fetch(`/api/reading/${bookId}`);
+
+  if (!response.ok) {
+    throw new Error('无法加载阅读进度');
+  }
+
+  return response.json();
+}
+
+export async function saveReadingProgress(bookId, { cfi, progress, chapterHref, chapterLabel }) {
+  const response = await fetch(`/api/reading/${bookId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cfi, progress, chapterHref, chapterLabel }),
+  });
+
+  if (!response.ok) {
+    throw new Error('无法保存阅读进度');
+  }
+
+  return response.json();
+}
+
 export async function updateFolderBookOrder(folderId, bookIds) {
   const response = await fetch(`/api/folders/${folderId}/books/order`, {
     method: 'PATCH',

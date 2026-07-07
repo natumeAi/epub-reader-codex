@@ -287,6 +287,17 @@ export function removeBookFileFromLibrary(db, filePath) {
   return changes;
 }
 
+export function getBookById(db, id) {
+  const row = db.prepare('SELECT * FROM books WHERE id = ?').get(id);
+  return row ? formatBook(row) : null;
+}
+
+export function getBookFilePath(db, id) {
+  const row = db.prepare('SELECT file_path FROM books WHERE id = ?').get(id);
+  if (!row) return null;
+  return managedBookFilePath(row.file_path);
+}
+
 export function deleteBookById(db, id) {
   const book = db.prepare('SELECT * FROM books WHERE id = ?').get(id);
 
@@ -325,14 +336,11 @@ export async function syncBookDirectory(db) {
     .prepare('SELECT id, file_path, cover_path FROM books WHERE file_path LIKE ?')
     .all(`${booksStoragePrefix}%`);
 
-  const removeMissingBook = db.prepare('DELETE FROM books WHERE id = ?');
-
   for (const book of trackedBooks) {
     const absolutePath = toAbsoluteStoragePath(book.file_path);
 
     if (!currentBookPaths.has(book.file_path) && !existsSync(absolutePath)) {
-      removeMissingBook.run(book.id);
-      deleteStoredCover(book.cover_path);
+      removeBookFileFromLibrary(db, absolutePath);
     }
   }
 }

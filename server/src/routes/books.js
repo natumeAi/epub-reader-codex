@@ -10,6 +10,7 @@ import {
 import {
   addBookFileToLibrary,
   deleteBookById,
+  getBookFilePath,
   listBooks,
   updateShelfBookOrder,
 } from '../services/bookLibrary.js';
@@ -158,6 +159,26 @@ router.post('/', handleUpload, async (req, res, next) => {
       }
     }
 
+    next(err);
+  }
+});
+
+router.get('/:id/file', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    const bookId = parseBookId(req.params.id);
+    const filePath = getBookFilePath(db, bookId);
+
+    if (!filePath) {
+      const error = new Error('Book not found');
+      error.status = 404;
+      throw error;
+    }
+
+    res.setHeader('Content-Type', 'application/epub+zip');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.sendFile(filePath);
+  } catch (err) {
     next(err);
   }
 });

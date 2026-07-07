@@ -949,3 +949,146 @@ h1 {
     padding-left: 16px;
   }
 }
+
+/* ── Reader overlay ──────────────────────────────────────────────── */
+
+.reader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.reader-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: max(14px, env(safe-area-inset-top)) 18px 10px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.reader-close-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+}
+
+.reader-close-button span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: var(--text-primary);
+  clip-path: polygon(
+    10% 0%, 0% 10%, 40% 50%, 0% 90%, 10% 100%,
+    50% 60%, 90% 100%, 100% 90%, 60% 50%, 100% 10%, 90% 0%, 50% 40%
+  );
+}
+
+.reader-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-progress-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-body {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.reader-epub-container {
+  position: absolute;
+  inset: 0;
+}
+
+.reader-epub-container iframe {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+}
+
+.reader-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #fff;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.reader-loading p {
+  margin: 0;
+}
+
+.reader-loading-spinner {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgba(0, 0, 0, 0.1);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+.reader-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 32px;
+  text-align: center;
+  font-size: 15px;
+  color: var(--danger);
+}
+
+.reader-tap-zones {
+  position: absolute;
+  inset: 0;
+  top: 54px;
+  display: flex;
+  pointer-events: none;
+}
+
+.reader-tap-prev,
+.reader-tap-next {
+  flex: 1;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}

@@ -28,6 +28,7 @@ import {
   updateShelfItemOrder,
   uploadBook,
 } from './api/books.js';
+import { ReaderView } from './components/reader/ReaderView.jsx';
 
 const centerZoneRatio = 0.46;
 const sortIntentDelayMs = 450;
@@ -324,7 +325,7 @@ function pointFromInputEvent(event) {
   return null;
 }
 
-function SortableShelfItem({ disabled, dragIntent, item, onOpenFolder }) {
+function SortableShelfItem({ disabled, dragIntent, item, onOpenBook, onOpenFolder }) {
   const {
     attributes,
     isDragging,
@@ -363,6 +364,8 @@ function SortableShelfItem({ disabled, dragIntent, item, onOpenFolder }) {
   const handleClick = () => {
     if (item.type === 'folder') {
       onOpenFolder(item.folder);
+    } else if (item.type === 'book') {
+      onOpenBook(item.book);
     }
   };
 
@@ -597,6 +600,7 @@ function App() {
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [folderError, setFolderError] = useState('');
   const [error, setError] = useState('');
+  const [readingBook, setReadingBook] = useState(null);
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
@@ -829,8 +833,16 @@ function App() {
     }
   }
 
-  async function handleOpenFolder(folder) {
-    if (!folder || isSavingOrder || performance.now() < ignoreFolderClickUntilRef.current) {
+  function handleOpenBook(book) {
+    if (!book || isSavingOrder) return;
+    setReadingBook(book);
+  }
+
+  function handleCloseReader() {
+    setReadingBook(null);
+  }
+
+  async function handleOpenFolder(folder) {    if (!folder || isSavingOrder || performance.now() < ignoreFolderClickUntilRef.current) {
       return;
     }
 
@@ -1443,6 +1455,7 @@ function App() {
                   dragIntent={dragIntent}
                   item={item}
                   key={item.key}
+                  onOpenBook={handleOpenBook}
                   onOpenFolder={handleOpenFolder}
                 />
               ))}
@@ -1472,6 +1485,9 @@ function App() {
         onRenameSubmit={handleSubmitFolderRename}
         renameDraft={folderNameDraft}
       />
+      {readingBook && (
+        <ReaderView book={readingBook} onClose={handleCloseReader} />
+      )}
       </main>
       <DragOverlay dropAnimation={null}>
         <DragPreview item={fixedDragPreviewPoint ? null : activeDragPreview} />

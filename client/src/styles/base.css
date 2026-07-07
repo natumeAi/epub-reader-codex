@@ -439,6 +439,168 @@ h1 {
     inset 8px 0 14px rgba(255, 255, 255, 0.18);
 }
 
+.folder-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: max(14px, env(safe-area-inset-top)) 12px
+    max(14px, env(safe-area-inset-bottom));
+}
+
+.folder-backdrop {
+  position: fixed;
+  inset: 0;
+  border: 0;
+  background: rgba(20, 20, 24, 0.22);
+  backdrop-filter: blur(14px) saturate(1.08);
+  cursor: default;
+}
+
+.folder-panel {
+  position: relative;
+  display: flex;
+  width: min(100%, 680px);
+  max-height: min(86svh, 820px);
+  min-height: min(76svh, 680px);
+  flex-direction: column;
+  gap: 22px;
+  overflow: hidden;
+  border-radius: 24px;
+  background: rgba(250, 250, 252, 0.94);
+  box-shadow:
+    0 34px 70px rgba(29, 29, 31, 0.28),
+    0 8px 22px rgba(29, 29, 31, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.folder-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 22px 18px 0;
+}
+
+.folder-panel-header h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-close-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(118, 118, 128, 0.14);
+  color: rgba(29, 29, 31, 0.68);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.folder-close-button span {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.folder-close-button span::before,
+.folder-close-button span::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 15px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.folder-close-button span::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.folder-close-button span::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.folder-close-button:active {
+  transform: scale(0.94);
+}
+
+.folder-close-button:focus-visible {
+  outline: 3px solid rgba(0, 122, 255, 0.24);
+  outline-offset: 3px;
+}
+
+.folder-status {
+  margin: -8px 18px 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.folder-book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--book-cover-width));
+  justify-content: space-between;
+  gap: var(--shelf-row-gap) var(--shelf-column-gap);
+  align-items: start;
+  overflow: auto;
+  padding: 0 20px 28px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.folder-book-shell {
+  display: grid;
+  width: var(--book-cover-width);
+  height: var(--book-cover-height);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  outline: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.folder-book-shell:active .book-cover {
+  transform: translateY(2px) scale(0.985);
+}
+
+.folder-book-shell:focus-visible .book-cover {
+  outline: 3px solid rgba(0, 122, 255, 0.3);
+  outline-offset: 5px;
+}
+
+.folder-empty-state {
+  display: grid;
+  flex: 1;
+  align-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 22px 18px 46px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.folder-empty-state p {
+  max-width: 240px;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
 @media (hover: hover) {
   .book-shell:hover .book-cover,
   .book-shell:hover .folder-cover {
@@ -456,6 +618,14 @@ h1 {
       0 8px 14px rgba(38, 31, 24, 0.16),
       inset 0 0 0 1px rgba(255, 255, 255, 0.24);
     transform: scale(1.04);
+  }
+
+  .folder-book-shell:hover .book-cover {
+    box-shadow:
+      0 22px 34px rgba(38, 31, 24, 0.22),
+      0 5px 10px rgba(38, 31, 24, 0.14),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+    transform: translateY(-2px);
   }
 }
 
@@ -479,5 +649,14 @@ h1 {
   .app-shell {
     padding-right: 14px;
     padding-left: 14px;
+  }
+
+  .folder-panel {
+    border-radius: 22px;
+  }
+
+  .folder-book-grid {
+    padding-right: 16px;
+    padding-left: 16px;
   }
 }

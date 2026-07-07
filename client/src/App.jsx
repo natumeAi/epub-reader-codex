@@ -18,6 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   createFolderFromBooks,
+  listFolderBooks,
   listShelfItems,
   updateShelfItemOrder,
   uploadBook,
@@ -224,7 +225,7 @@ function ShelfItemCover({ item }) {
   );
 }
 
-function SortableShelfItem({ disabled, dragIntent, item }) {
+function SortableShelfItem({ disabled, dragIntent, item, onOpenFolder }) {
   const {
     attributes,
     isDragging,
@@ -260,6 +261,11 @@ function SortableShelfItem({ disabled, dragIntent, item }) {
     item.type === 'folder'
       ? item.folder?.name || '文件夹'
       : item.book?.title || '未命名书籍';
+  const handleClick = () => {
+    if (item.type === 'folder') {
+      onOpenFolder(item.folder);
+    }
+  };
 
   return (
     <button
@@ -268,6 +274,7 @@ function SortableShelfItem({ disabled, dragIntent, item }) {
       style={style}
       type="button"
       aria-label={label}
+      onClick={handleClick}
       {...attributes}
       {...listeners}
     >
@@ -276,10 +283,73 @@ function SortableShelfItem({ disabled, dragIntent, item }) {
   );
 }
 
+function FolderOverlay({
+  books,
+  error,
+  folder,
+  isLoading,
+  onClose,
+}) {
+  if (!folder) {
+    return null;
+  }
+
+  return (
+    <div className="folder-overlay" role="dialog" aria-modal="true" aria-labelledby="folder-overlay-title">
+      <button className="folder-backdrop" type="button" aria-label="关闭文件夹" onClick={onClose} />
+      <section className="folder-panel">
+        <header className="folder-panel-header">
+          <h2 id="folder-overlay-title">{folder.name || '文件夹'}</h2>
+          <button className="folder-close-button" type="button" aria-label="关闭文件夹" onClick={onClose}>
+            <span aria-hidden="true" />
+          </button>
+        </header>
+
+        {error ? (
+          <p className="folder-status error-message" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        {isLoading ? (
+          <div className="folder-book-grid" aria-label="文件夹加载中">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div className="folder-book-shell" key={index}>
+                <div className="book-cover skeleton-cover" />
+              </div>
+            ))}
+          </div>
+        ) : books.length ? (
+          <div className="folder-book-grid" aria-label="文件夹书籍">
+            {books.map((book) => (
+              <button
+                className="folder-book-shell"
+                type="button"
+                aria-label={book.title || '未命名书籍'}
+                key={book.id}
+              >
+                <span className="book-cover">
+                  <BookCover book={book} />
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="folder-empty-state" role="status">
+            <div className="empty-cover" aria-hidden="true" />
+            <p>这个文件夹是空的</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function App() {
   const fileInputRef = useRef(null);
   const dragIntentFrameRef = useRef(null);
   const dragIntentRef = useRef({ type: 'idle', targetKey: null });
+  const ignoreFolderClickUntilRef = useRef(0);
   const sortIntentRef = useRef({ startedAt: 0, targetKey: null });
   const [shelfItems, setShelfItems] = useState([]);
   const [dragIntent, setDragIntent] = useState({ type: 'idle', targetKey: null });
@@ -287,6 +357,10 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [openFolder, setOpenFolder] = useState(null);
+  const [folderBooks, setFolderBooks] = useState([]);
+  const [isFolderLoading, setIsFolderLoading] = useState(false);
+  const [folderError, setFolderError] = useState('');
   const [error, setError] = useState('');
   const sensors = useSensors(
     useSensor(MouseSensor, {
@@ -451,6 +525,33 @@ function App() {
     }
   }
 
+  async function handleOpenFolder(folder) {
+    if (!folder || isSavingOrder || performance.now() < ignoreFolderClickUntilRef.current) {
+      return;
+    }
+
+    setOpenFolder(folder);
+    setFolderBooks([]);
+    setFolderError('');
+    setIsFolderLoading(true);
+
+    try {
+      const data = await listFolderBooks(folder.id);
+      setFolderBooks(data.books || []);
+    } catch (err) {
+      setFolderError(err.message || '无法加载文件夹');
+    } finally {
+      setIsFolderLoading(false);
+    }
+  }
+
+  function handleCloseFolder() {
+    setOpenFolder(null);
+    setFolderBooks([]);
+    setFolderError('');
+    setIsFolderLoading(false);
+  }
+
   useEffect(() => {
     loadShelf();
   }, []);
@@ -495,6 +596,7 @@ function App() {
     const { active, over } = event;
     const finalDragIntent = dragIntentRef.current;
 
+    ignoreFolderClickUntilRef.current = performance.now() + 300;
     clearDragIntent();
 
     if (isSavingOrder) {
@@ -620,6 +722,7 @@ function App() {
                     dragIntent={dragIntent}
                     item={item}
                     key={item.key}
+                    onOpenFolder={handleOpenFolder}
                   />
                 ))}
               </div>
@@ -632,6 +735,13 @@ function App() {
           </div>
         )}
       </section>
+      <FolderOverlay
+        books={folderBooks}
+        error={folderError}
+        folder={openFolder}
+        isLoading={isFolderLoading}
+        onClose={handleCloseFolder}
+      />
     </main>
   );
 }

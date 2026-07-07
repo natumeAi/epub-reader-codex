@@ -1292,8 +1292,29 @@ h1 {
 .reader-settings-content {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
+  overflow-y: auto;
   padding: 6px 20px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.reader-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reader-settings-group + .reader-settings-group {
+  padding-top: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.reader-settings-group-title {
+  margin: 0 0 -2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .reader-settings-section {
@@ -1354,9 +1375,9 @@ h1 {
   cursor: default;
 }
 
-.reader-font-size-slider {
+.reader-setting-slider {
   width: 100%;
-  height: 32px;
+  height: 36px;
   accent-color: var(--accent);
 }
 

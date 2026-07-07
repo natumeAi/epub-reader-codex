@@ -14,6 +14,23 @@ const DEFAULT_FONT_SIZE = 100;
 const FONT_SIZE_MIN = 80;
 const FONT_SIZE_MAX = 140;
 const FONT_SIZE_STEP = 10;
+const DEFAULT_HORIZONTAL_MARGIN = 24;
+const HORIZONTAL_MARGIN_MIN = 12;
+const HORIZONTAL_MARGIN_MAX = 48;
+const HORIZONTAL_MARGIN_STEP = 6;
+const DEFAULT_VERTICAL_MARGIN = 20;
+const VERTICAL_MARGIN_MIN = 12;
+const VERTICAL_MARGIN_MAX = 48;
+const VERTICAL_MARGIN_STEP = 6;
+const DEFAULT_LINE_HEIGHT = 1.6;
+const LINE_HEIGHT_MIN = 1.3;
+const LINE_HEIGHT_MAX = 2;
+const LINE_HEIGHT_STEP = 0.1;
+const DEFAULT_LETTER_SPACING = 0;
+const LETTER_SPACING_MIN = 0;
+const LETTER_SPACING_MAX = 0.12;
+const LETTER_SPACING_STEP = 0.02;
+const READER_LAYOUT_STYLE_ID = 'reader-layout-settings';
 const DEFAULT_FONT_FAMILY_ID = 'system';
 const FONT_FAMILY_OPTIONS = [
   {
@@ -38,10 +55,49 @@ const FONT_FAMILY_OPTIONS = [
   },
 ];
 
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
 function clampFontSize(value) {
-  const size = Number(value);
-  if (!Number.isFinite(size)) return DEFAULT_FONT_SIZE;
-  return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size));
+  return clampNumber(value, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_FONT_SIZE);
+}
+
+function clampHorizontalMargin(value) {
+  return clampNumber(
+    value,
+    HORIZONTAL_MARGIN_MIN,
+    HORIZONTAL_MARGIN_MAX,
+    DEFAULT_HORIZONTAL_MARGIN,
+  );
+}
+
+function clampVerticalMargin(value) {
+  return clampNumber(
+    value,
+    VERTICAL_MARGIN_MIN,
+    VERTICAL_MARGIN_MAX,
+    DEFAULT_VERTICAL_MARGIN,
+  );
+}
+
+function clampLineHeight(value) {
+  return Number(
+    clampNumber(value, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX, DEFAULT_LINE_HEIGHT).toFixed(1),
+  );
+}
+
+function clampLetterSpacing(value) {
+  return Number(
+    clampNumber(
+      value,
+      LETTER_SPACING_MIN,
+      LETTER_SPACING_MAX,
+      DEFAULT_LETTER_SPACING,
+    ).toFixed(2),
+  );
 }
 
 function getReaderFontFamily(fontFamilyId) {
@@ -49,10 +105,60 @@ function getReaderFontFamily(fontFamilyId) {
     FONT_FAMILY_OPTIONS[0].value;
 }
 
-function applyReaderFontSettings(rendition, fontSize, fontFamilyId) {
+function getReaderLayoutCss({ lineHeight, letterSpacing }) {
+  return `
+    html {
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    body {
+      line-height: ${lineHeight} !important;
+      letter-spacing: ${letterSpacing}em !important;
+    }
+
+    p, div, section, article, blockquote, li {
+      line-height: ${lineHeight} !important;
+      letter-spacing: ${letterSpacing}em !important;
+    }
+  `;
+}
+
+function applyReaderLayoutStylesToContents(contents, settings) {
+  if (!contents) return;
+
+  contents.addStylesheetCss?.(getReaderLayoutCss(settings), READER_LAYOUT_STYLE_ID);
+
+  const verticalMargin = `${settings.verticalMargin}px`;
+  const lineHeight = String(settings.lineHeight);
+  const letterSpacing = `${settings.letterSpacing}em`;
+
+  contents.css?.('padding-top', verticalMargin, true);
+  contents.css?.('padding-bottom', verticalMargin, true);
+  contents.css?.('line-height', lineHeight, true);
+  contents.css?.('letter-spacing', letterSpacing, true);
+}
+
+async function applyReaderHorizontalMargin(rendition, horizontalMargin, cfi) {
+  const manager = rendition?.manager;
+  const layout = rendition?._layout;
+  if (!manager || !layout) return;
+
+  manager.settings.gap = horizontalMargin * 2;
+  manager.updateLayout?.();
+
+  if (cfi) {
+    await rendition.display(cfi);
+  }
+}
+
+function applyReaderSettings(rendition, settings) {
   if (!rendition?.themes) return;
-  rendition.themes.fontSize(`${fontSize}%`);
-  rendition.themes.font(getReaderFontFamily(fontFamilyId));
+  rendition.getContents?.().forEach((contents) => {
+    applyReaderLayoutStylesToContents(contents, settings);
+  });
+  rendition.themes.fontSize(`${settings.fontSize}%`);
+  rendition.themes.font(getReaderFontFamily(settings.fontFamilyId));
 }
 
 export function ReaderView({ book, onClose }) {
@@ -63,6 +169,7 @@ export function ReaderView({ book, onClose }) {
   const pendingProgressRef = useRef(null);
   const pointerRef = useRef(null);
   const animatingRef = useRef(false);
+  const currentCfiRef = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
@@ -73,9 +180,17 @@ export function ReaderView({ book, onClose }) {
   const [currentHref, setCurrentHref] = useState(null);
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
   const [fontFamilyId, setFontFamilyId] = useState(DEFAULT_FONT_FAMILY_ID);
-  const fontSettingsRef = useRef({
+  const [horizontalMargin, setHorizontalMargin] = useState(DEFAULT_HORIZONTAL_MARGIN);
+  const [verticalMargin, setVerticalMargin] = useState(DEFAULT_VERTICAL_MARGIN);
+  const [lineHeight, setLineHeight] = useState(DEFAULT_LINE_HEIGHT);
+  const [letterSpacing, setLetterSpacing] = useState(DEFAULT_LETTER_SPACING);
+  const readerSettingsRef = useRef({
     fontSize: DEFAULT_FONT_SIZE,
     fontFamilyId: DEFAULT_FONT_FAMILY_ID,
+    horizontalMargin: DEFAULT_HORIZONTAL_MARGIN,
+    verticalMargin: DEFAULT_VERTICAL_MARGIN,
+    lineHeight: DEFAULT_LINE_HEIGHT,
+    letterSpacing: DEFAULT_LETTER_SPACING,
   });
   // 'slide' = 平移翻页, 'curl' = CSS 3D 近似卷曲
   const [turnStyle, setTurnStyle] = useState('curl');
@@ -125,11 +240,10 @@ export function ReaderView({ book, onClose }) {
           spread: 'none',
         });
         renditionRef.current = rendition;
-        applyReaderFontSettings(
-          rendition,
-          fontSettingsRef.current.fontSize,
-          fontSettingsRef.current.fontFamilyId,
-        );
+        rendition.hooks.content.register((contents) => {
+          applyReaderLayoutStylesToContents(contents, readerSettingsRef.current);
+        });
+        applyReaderSettings(rendition, readerSettingsRef.current);
 
         let startCfi;
         try {
@@ -142,6 +256,11 @@ export function ReaderView({ book, onClose }) {
         if (destroyed) return;
 
         await rendition.display(startCfi);
+        await applyReaderHorizontalMargin(
+          rendition,
+          readerSettingsRef.current.horizontalMargin,
+          startCfi,
+        );
 
         if (destroyed) return;
         setIsLoading(false);
@@ -157,6 +276,7 @@ export function ReaderView({ book, onClose }) {
         rendition.on('relocated', (location) => {
           if (destroyed) return;
           const cfi = location.start.cfi;
+          currentCfiRef.current = cfi;
           const pct = epubBook.locations.percentageFromCfi(cfi);
           const progressValue =
             typeof pct === 'number' && Number.isFinite(pct) ? pct : 0;
@@ -188,16 +308,42 @@ export function ReaderView({ book, onClose }) {
       pendingProgressRef.current = null;
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
+      currentCfiRef.current = null;
       bookRef.current = null;
       renditionRef.current = null;
     };
   }, [book?.id, flushSave, scheduleSave]);
 
   useEffect(() => {
-    fontSettingsRef.current = { fontSize, fontFamilyId };
+    readerSettingsRef.current = {
+      fontSize,
+      fontFamilyId,
+      horizontalMargin,
+      verticalMargin,
+      lineHeight,
+      letterSpacing,
+    };
     if (isLoading || error) return;
-    applyReaderFontSettings(renditionRef.current, fontSize, fontFamilyId);
-  }, [fontSize, fontFamilyId, isLoading, error]);
+    applyReaderSettings(renditionRef.current, readerSettingsRef.current);
+  }, [
+    fontSize,
+    fontFamilyId,
+    horizontalMargin,
+    verticalMargin,
+    lineHeight,
+    letterSpacing,
+    isLoading,
+    error,
+  ]);
+
+  useEffect(() => {
+    if (isLoading || error) return;
+    applyReaderHorizontalMargin(
+      renditionRef.current,
+      horizontalMargin,
+      currentCfiRef.current,
+    ).catch(() => {});
+  }, [horizontalMargin, isLoading, error]);
 
   // Tween the epub scroll-strip by one column, then let epub.js's own
   // next()/prev() sync its location (source of truth for progress).
@@ -272,6 +418,22 @@ export function ReaderView({ book, onClose }) {
 
   const handleFontSizeChange = useCallback((event) => {
     setFontSize(clampFontSize(event.target.value));
+  }, []);
+
+  const handleHorizontalMarginChange = useCallback((event) => {
+    setHorizontalMargin(clampHorizontalMargin(event.target.value));
+  }, []);
+
+  const handleVerticalMarginChange = useCallback((event) => {
+    setVerticalMargin(clampVerticalMargin(event.target.value));
+  }, []);
+
+  const handleLineHeightChange = useCallback((event) => {
+    setLineHeight(clampLineHeight(event.target.value));
+  }, []);
+
+  const handleLetterSpacingChange = useCallback((event) => {
+    setLetterSpacing(clampLetterSpacing(event.target.value));
   }, []);
 
   const handlePointerDown = useCallback((event) => {
@@ -410,65 +572,133 @@ export function ReaderView({ book, onClose }) {
           <div className="reader-panel-handle" aria-hidden="true" />
           <h2 className="reader-panel-title">Aa 设置</h2>
           <div className="reader-settings-content">
-            <section className="reader-settings-section" aria-labelledby="reader-font-size-title">
-              <div className="reader-settings-row">
-                <span id="reader-font-size-title" className="reader-settings-label">字体大小</span>
-                <span className="reader-settings-value">{fontSize}%</span>
+            <section className="reader-settings-group" aria-labelledby="reader-text-settings-title">
+              <h3 id="reader-text-settings-title" className="reader-settings-group-title">文字</h3>
+              <div className="reader-settings-section" aria-labelledby="reader-font-size-title">
+                <div className="reader-settings-row">
+                  <span id="reader-font-size-title" className="reader-settings-label">字体大小</span>
+                  <span className="reader-settings-value">{fontSize}%</span>
+                </div>
+                <div className="reader-font-size-control">
+                  <button
+                    type="button"
+                    className="reader-font-step"
+                    onClick={decreaseFontSize}
+                    disabled={fontSize <= FONT_SIZE_MIN}
+                    aria-label="减小字体"
+                  >
+                    A
+                  </button>
+                  <input
+                    className="reader-setting-slider"
+                    type="range"
+                    min={FONT_SIZE_MIN}
+                    max={FONT_SIZE_MAX}
+                    step={FONT_SIZE_STEP}
+                    value={fontSize}
+                    onChange={handleFontSizeChange}
+                    aria-labelledby="reader-font-size-title"
+                  />
+                  <button
+                    type="button"
+                    className="reader-font-step reader-font-step-large"
+                    onClick={increaseFontSize}
+                    disabled={fontSize >= FONT_SIZE_MAX}
+                    aria-label="增大字体"
+                  >
+                    A
+                  </button>
+                </div>
               </div>
-              <div className="reader-font-size-control">
-                <button
-                  type="button"
-                  className="reader-font-step"
-                  onClick={decreaseFontSize}
-                  disabled={fontSize <= FONT_SIZE_MIN}
-                  aria-label="减小字体"
-                >
-                  A
-                </button>
-                <input
-                  className="reader-font-size-slider"
-                  type="range"
-                  min={FONT_SIZE_MIN}
-                  max={FONT_SIZE_MAX}
-                  step={FONT_SIZE_STEP}
-                  value={fontSize}
-                  onChange={handleFontSizeChange}
-                  aria-labelledby="reader-font-size-title"
-                />
-                <button
-                  type="button"
-                  className="reader-font-step reader-font-step-large"
-                  onClick={increaseFontSize}
-                  disabled={fontSize >= FONT_SIZE_MAX}
-                  aria-label="增大字体"
-                >
-                  A
-                </button>
+
+              <div className="reader-settings-section" aria-labelledby="reader-font-family-title">
+                <div className="reader-settings-row">
+                  <span id="reader-font-family-title" className="reader-settings-label">字体</span>
+                </div>
+                <div className="reader-font-options" role="group" aria-labelledby="reader-font-family-title">
+                  {FONT_FAMILY_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`reader-font-option${fontFamilyId === option.id ? ' is-active' : ''}`}
+                      style={{ fontFamily: option.value }}
+                      onClick={() => setFontFamilyId(option.id)}
+                      aria-pressed={fontFamilyId === option.id}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </section>
 
-            <section className="reader-settings-section" aria-labelledby="reader-font-family-title">
-              <div className="reader-settings-row">
-                <span id="reader-font-family-title" className="reader-settings-label">字体</span>
-              </div>
-              <div className="reader-font-options" role="group" aria-labelledby="reader-font-family-title">
-                {FONT_FAMILY_OPTIONS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className={`reader-font-option${fontFamilyId === option.id ? ' is-active' : ''}`}
-                    style={{ fontFamily: option.value }}
-                    onClick={() => setFontFamilyId(option.id)}
-                    aria-pressed={fontFamilyId === option.id}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+            <section className="reader-settings-group" aria-labelledby="reader-layout-settings-title">
+              <h3 id="reader-layout-settings-title" className="reader-settings-group-title">排版</h3>
+              <ReaderRangeSetting
+                id="reader-horizontal-margin-title"
+                label="左右边距"
+                value={horizontalMargin}
+                valueLabel={`每侧 ${horizontalMargin}px`}
+                min={HORIZONTAL_MARGIN_MIN}
+                max={HORIZONTAL_MARGIN_MAX}
+                step={HORIZONTAL_MARGIN_STEP}
+                onChange={handleHorizontalMarginChange}
+              />
+              <ReaderRangeSetting
+                id="reader-vertical-margin-title"
+                label="上下边距"
+                value={verticalMargin}
+                valueLabel={`${verticalMargin}px`}
+                min={VERTICAL_MARGIN_MIN}
+                max={VERTICAL_MARGIN_MAX}
+                step={VERTICAL_MARGIN_STEP}
+                onChange={handleVerticalMarginChange}
+              />
+              <ReaderRangeSetting
+                id="reader-line-height-title"
+                label="行距"
+                value={lineHeight}
+                valueLabel={lineHeight.toFixed(1)}
+                min={LINE_HEIGHT_MIN}
+                max={LINE_HEIGHT_MAX}
+                step={LINE_HEIGHT_STEP}
+                onChange={handleLineHeightChange}
+              />
+              <ReaderRangeSetting
+                id="reader-letter-spacing-title"
+                label="字距"
+                value={letterSpacing}
+                valueLabel={letterSpacing === 0 ? '默认' : `${letterSpacing.toFixed(2)}em`}
+                min={LETTER_SPACING_MIN}
+                max={LETTER_SPACING_MAX}
+                step={LETTER_SPACING_STEP}
+                onChange={handleLetterSpacingChange}
+              />
             </section>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReaderRangeSetting({ id, label, value, valueLabel, min, max, step, onChange }) {
+  return (
+    <div className="reader-settings-section" aria-labelledby={id}>
+      <div className="reader-settings-row">
+        <span id={id} className="reader-settings-label">{label}</span>
+        <span className="reader-settings-value">{valueLabel}</span>
+      </div>
+      <input
+        className="reader-setting-slider"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={onChange}
+        aria-labelledby={id}
+      />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   createFolderFromBooks,
   listFolderBooks,
   listShelfItems,
+  moveFolderBookToShelf,
   renameFolder,
   updateFolderBookOrder,
   updateShelfItemOrder,
@@ -316,11 +317,12 @@ function SortableShelfItem({ disabled, dragIntent, item, onOpenFolder }) {
   );
 }
 
-function SortableFolderBook({ book, disabled }) {
+function SortableFolderBook({ book, disabled, isMovingOut, onMoveOut }) {
   const {
     attributes,
     isDragging,
     listeners,
+    setActivatorNodeRef,
     setNodeRef,
     transform,
     transition,
@@ -342,19 +344,40 @@ function SortableFolderBook({ book, disabled }) {
     .join(' ');
 
   return (
-    <button
+    <div
       ref={setNodeRef}
       className={className}
       style={style}
-      type="button"
-      aria-label={book.title || '未命名书籍'}
-      {...attributes}
-      {...listeners}
     >
-      <span className="book-cover">
-        <BookCover book={book} />
-      </span>
-    </button>
+      <button
+        ref={setActivatorNodeRef}
+        className="folder-book-cover-button"
+        disabled={disabled}
+        type="button"
+        aria-label={book.title || '未命名书籍'}
+        {...attributes}
+        {...listeners}
+      >
+        <span className="book-cover">
+          <BookCover book={book} />
+        </span>
+      </button>
+      <button
+        className="folder-book-move-button"
+        disabled={disabled || isMovingOut}
+        type="button"
+        aria-label={`移出《${book.title || '未命名书籍'}》到书架`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onMoveOut(book);
+        }}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+        }}
+      >
+        <span aria-hidden="true" />
+      </button>
+    </div>
   );
 }
 
@@ -366,10 +389,12 @@ function FolderOverlay({
   isLoading,
   isRenaming,
   isRenameSaving,
+  movingBookId,
   isSavingOrder,
   onDragCancel,
   onDragEnd,
   onClose,
+  onMoveBookToShelf,
   onRenameCancel,
   onRenameDraftChange,
   onRenameStart,
@@ -438,7 +463,7 @@ function FolderOverlay({
           )}
           <button
             className="folder-close-button"
-            disabled={isRenameSaving}
+            disabled={isRenameSaving || movingBookId !== null}
             type="button"
             aria-label="关闭文件夹"
             onClick={onClose}
@@ -471,8 +496,10 @@ function FolderOverlay({
                 {books.map((book) => (
                   <SortableFolderBook
                     book={book}
-                    disabled={isSavingOrder}
+                    disabled={isSavingOrder || movingBookId !== null}
+                    isMovingOut={movingBookId === book.id}
                     key={book.key}
+                    onMoveOut={onMoveBookToShelf}
                   />
                 ))}
               </div>
@@ -508,6 +535,7 @@ function App() {
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
   const [isSavingFolderName, setIsSavingFolderName] = useState(false);
   const [isSavingFolderOrder, setIsSavingFolderOrder] = useState(false);
+  const [movingFolderBookId, setMovingFolderBookId] = useState(null);
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [folderError, setFolderError] = useState('');
   const [error, setError] = useState('');
@@ -722,6 +750,7 @@ function App() {
     setFolderError('');
     setFolderNameDraft('');
     setIsRenamingFolder(false);
+    setMovingFolderBookId(null);
     setIsFolderLoading(true);
 
     try {
@@ -735,7 +764,7 @@ function App() {
   }
 
   function handleCloseFolder() {
-    if (isSavingFolderName) {
+    if (isSavingFolderName || movingFolderBookId !== null) {
       return;
     }
 
@@ -746,6 +775,7 @@ function App() {
     setIsRenamingFolder(false);
     setIsSavingFolderName(false);
     setIsSavingFolderOrder(false);
+    setMovingFolderBookId(null);
     setFolderNameDraft('');
     folderSortIntentRef.current = { startedAt: 0, targetKey: null };
   }
@@ -949,6 +979,33 @@ function App() {
     }
   }
 
+  async function handleMoveFolderBookToShelf(book) {
+    if (!openFolder || !book || isSavingFolderOrder || movingFolderBookId !== null) {
+      return;
+    }
+
+    setMovingFolderBookId(book.id);
+    setFolderError('');
+
+    try {
+      const data = await moveFolderBookToShelf(openFolder.id, book.id);
+
+      setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
+
+      if (!data.folder) {
+        handleCloseFolder();
+        return;
+      }
+
+      setOpenFolder(data.folder);
+      setFolderBooks((data.books || []).map(normalizeFolderBook));
+    } catch (err) {
+      setFolderError(err.message || '无法移出书籍');
+    } finally {
+      setMovingFolderBookId(null);
+    }
+  }
+
   return (
     <main className="app-shell" aria-label="EPUB Reader">
       <section className="library-home">
@@ -1033,10 +1090,12 @@ function App() {
         isLoading={isFolderLoading}
         isRenaming={isRenamingFolder}
         isRenameSaving={isSavingFolderName}
+        movingBookId={movingFolderBookId}
         isSavingOrder={isSavingFolderOrder}
         onDragCancel={clearFolderDragIntent}
         onDragEnd={handleFolderDragEnd}
         onClose={handleCloseFolder}
+        onMoveBookToShelf={handleMoveFolderBookToShelf}
         onRenameCancel={handleCancelFolderRename}
         onRenameDraftChange={setFolderNameDraft}
         onRenameStart={handleStartFolderRename}

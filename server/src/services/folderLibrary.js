@@ -207,6 +207,100 @@ export function updateFolderBookOrder(db, folderId, bookIds) {
   return listBooks(db, { folderId });
 }
 
+export function moveFolderBookToShelf(db, folderId, bookId) {
+  return db.transaction(() => {
+    const folder = getFolder(db, folderId);
+
+    if (!folder) {
+      const error = new Error('Folder not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const book = db.prepare('SELECT * FROM books WHERE id = ?').get(bookId);
+
+    if (!book) {
+      const error = new Error('Book not found');
+      error.status = 404;
+      throw error;
+    }
+
+    if (book.folder_id !== folderId) {
+      const error = new Error('Book is not in this folder');
+      error.status = 409;
+      throw error;
+    }
+
+    const currentShelfItems = listShelfItems(db);
+    const folderIndex = currentShelfItems.findIndex((item) => item.type === 'folder' && item.id === folderId);
+
+    if (folderIndex < 0) {
+      const error = new Error('Folder is not on the shelf');
+      error.status = 409;
+      throw error;
+    }
+
+    const shelfItemsWithBook = [
+      ...currentShelfItems.slice(0, folderIndex + 1),
+      { type: 'book', id: bookId },
+      ...currentShelfItems.slice(folderIndex + 1),
+    ];
+
+    db.prepare(
+      `UPDATE books
+       SET folder_id = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND folder_id = ?`,
+    ).run(bookId, folderId);
+
+    const remainingBookCount = db
+      .prepare('SELECT COUNT(*) AS value FROM books WHERE folder_id = ?')
+      .get(folderId).value;
+
+    if (remainingBookCount === 0) {
+      db.prepare('DELETE FROM folders WHERE id = ?').run(folderId);
+    }
+
+    const orderedShelfItems = remainingBookCount === 0
+      ? shelfItemsWithBook.filter((item) => item.type !== 'folder' || item.id !== folderId)
+      : shelfItemsWithBook;
+
+    const updateBookOrder = db.prepare(
+      `UPDATE books
+       SET sort_order = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND folder_id IS NULL`,
+    );
+    const updateFolderOrder = db.prepare(
+      `UPDATE folders
+       SET sort_order = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+    );
+
+    orderedShelfItems.forEach((item, index) => {
+      const sortOrder = (index + 1) * 1000;
+
+      if (item.type === 'book') {
+        updateBookOrder.run(sortOrder, item.id);
+        return;
+      }
+
+      updateFolderOrder.run(sortOrder, item.id);
+    });
+
+    return {
+      book: formatBook(db.prepare('SELECT * FROM books WHERE id = ?').get(bookId)),
+      folder: remainingBookCount === 0 ? null : getFolder(db, folderId),
+      books: remainingBookCount === 0 ? [] : listBooks(db, { folderId }),
+      shelfItems: listShelfItems(db),
+      removedFolderId: remainingBookCount === 0 ? folderId : null,
+    };
+  })();
+}
+
 export function updateShelfItemOrder(db, items) {
   const currentItemKeys = listShelfItems(db).map((item) => `${item.type}:${item.id}`);
   const requestedItemKeys = new Set(items.map((item) => `${item.type}:${item.id}`));
@@ -249,4 +343,3 @@ export function updateShelfItemOrder(db, items) {
 
   return listShelfItems(db);
 }
-

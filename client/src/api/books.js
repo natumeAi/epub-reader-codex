@@ -76,6 +76,18 @@ export async function renameFolder(folderId, name) {
   return response.json();
 }
 
+export async function moveFolderBookToShelf(folderId, bookId) {
+  const response = await fetch(`/api/folders/${folderId}/books/${bookId}/move-to-shelf`, {
+    method: 'PATCH',
+  });
+
+  if (!response.ok) {
+    throw new Error(response.status === 409 ? '文件夹已变化，请刷新后重试' : '无法移出书籍');
+  }
+
+  return response.json();
+}
+
 export async function updateBookOrder(bookIds) {
   const response = await fetch('/api/books/order', {
     method: 'PATCH',

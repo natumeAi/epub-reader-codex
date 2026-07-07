@@ -720,9 +720,16 @@ h1 {
 }
 
 .folder-book-shell {
-  display: grid;
+  position: relative;
+  display: block;
   width: var(--book-cover-width);
   height: var(--book-cover-height);
+}
+
+.folder-book-cover-button {
+  display: grid;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -735,10 +742,13 @@ h1 {
 
 .folder-book-shell.is-dragging {
   z-index: 2;
+}
+
+.folder-book-shell.is-dragging .folder-book-cover-button {
   cursor: grabbing;
 }
 
-.folder-book-shell:active .book-cover {
+.folder-book-cover-button:active .book-cover {
   transform: translateY(2px) scale(0.985);
 }
 
@@ -750,9 +760,74 @@ h1 {
   transform: scale(1.04);
 }
 
-.folder-book-shell:focus-visible .book-cover {
+.folder-book-cover-button:focus-visible .book-cover {
   outline: 3px solid rgba(0, 122, 255, 0.3);
   outline-offset: 5px;
+}
+
+.folder-book-move-button {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 8px 18px rgba(38, 31, 24, 0.16),
+    inset 0 0 0 1px rgba(30, 30, 30, 0.08);
+  color: var(--accent);
+  cursor: pointer;
+  outline: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.folder-book-move-button span {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+
+.folder-book-move-button span::before {
+  position: absolute;
+  top: 7px;
+  left: 2px;
+  width: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: '';
+}
+
+.folder-book-move-button span::after {
+  position: absolute;
+  top: 4px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  content: '';
+  transform: rotate(-45deg);
+}
+
+.folder-book-move-button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.folder-book-move-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.folder-book-move-button:focus-visible {
+  outline: 3px solid rgba(0, 122, 255, 0.28);
+  outline-offset: 3px;
 }
 
 .folder-empty-state {

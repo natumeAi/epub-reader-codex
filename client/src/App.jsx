@@ -23,8 +23,12 @@ import {
   uploadBook,
 } from './api/books.js';
 
-const centerZoneRatio = 0.56;
-const sortIntentDelayMs = 300;
+const centerZoneRatio = 0.46;
+const sortIntentDelayMs = 450;
+const shelfSortTransition = {
+  duration: 460,
+  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+};
 
 function shelfItemKey(item) {
   return `${item.type}:${item.id}`;
@@ -103,7 +107,7 @@ function collisionForKey(targetKey, droppableContainers) {
     : [];
 }
 
-function isBeforeTarget(point, rect) {
+function isPointBeforeSortRect(point, rect) {
   const centerX = rect.left + rect.width / 2;
 
   if (point.y < rect.top) {
@@ -117,26 +121,51 @@ function isBeforeTarget(point, rect) {
   return point.x < centerX;
 }
 
-function sortTargetKeyFromPoint({ activeKey, point, shelfItems, targetKey, targetRect }) {
+function sortTargetKeyFromPoint({ activeKey, point, shelfItems, droppableRects }) {
   const orderedKeys = shelfItems.map((item) => item.key);
   const oldIndex = orderedKeys.indexOf(activeKey);
-  const targetIndex = orderedKeys.indexOf(targetKey);
 
-  if (oldIndex < 0 || targetIndex < 0) {
-    return targetKey;
+  if (oldIndex < 0) {
+    return null;
   }
 
-  const beforeTarget = isBeforeTarget(point, targetRect);
-  const desiredIndex = beforeTarget
-    ? oldIndex < targetIndex
-      ? targetIndex - 1
-      : targetIndex
-    : oldIndex < targetIndex
-      ? targetIndex
-      : targetIndex + 1;
-  const clampedIndex = Math.max(0, Math.min(orderedKeys.length - 1, desiredIndex));
+  const sortableKeys = orderedKeys.filter(
+    (key) => key !== activeKey && droppableRects.get(key),
+  );
+  let insertionIndex = sortableKeys.length;
+
+  for (let index = 0; index < sortableKeys.length; index += 1) {
+    const rect = droppableRects.get(sortableKeys[index]);
+
+    if (isPointBeforeSortRect(point, rect)) {
+      insertionIndex = index;
+      break;
+    }
+  }
+
+  const clampedIndex = Math.max(0, Math.min(orderedKeys.length - 1, insertionIndex));
 
   return orderedKeys[clampedIndex];
+}
+
+function restrictDragToShelfBounds({ activeNodeRect, transform }) {
+  const shelfElement = document.querySelector('.shelf-grid');
+
+  if (!shelfElement || !activeNodeRect) {
+    return transform;
+  }
+
+  const shelfRect = shelfElement.getBoundingClientRect();
+  const minX = shelfRect.left - activeNodeRect.left;
+  const maxX = shelfRect.right - activeNodeRect.right;
+  const minY = shelfRect.top - activeNodeRect.top;
+  const maxY = shelfRect.bottom - activeNodeRect.bottom;
+
+  return {
+    ...transform,
+    x: Math.min(Math.max(transform.x, minX), maxX),
+    y: Math.min(Math.max(transform.y, minY), maxY),
+  };
 }
 
 function BookCover({ book }) {
@@ -210,6 +239,7 @@ function SortableShelfItem({ disabled, dragIntent, item }) {
       type: item.type,
     },
     disabled,
+    transition: shelfSortTransition,
   });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -346,8 +376,7 @@ function App() {
           activeKey: String(active.id),
           point: activeCenter,
           shelfItems,
-          targetKey: lockedTarget.key,
-          targetRect: lockedTarget.rect,
+          droppableRects,
         });
 
         if (sortTargetKey === String(active.id)) {
@@ -375,27 +404,16 @@ function App() {
 
       publishDragIntent({ type: 'sort', targetKey: null });
       const sortCollisions = closestCenter(args);
-      const nearestSortCollision = sortCollisions.find(
-        (collision) => String(collision.id) !== String(active.id),
-      );
-      const nearestSortTargetKey = nearestSortCollision?.id ? String(nearestSortCollision.id) : null;
-      const nearestSortTargetRect = nearestSortTargetKey
-        ? droppableRects.get(nearestSortTargetKey)
-        : null;
-      const sortTargetKey =
-        nearestSortTargetKey && nearestSortTargetRect
-          ? sortTargetKeyFromPoint({
-              activeKey: String(active.id),
-              point: activeCenter,
-              shelfItems,
-              targetKey: nearestSortTargetKey,
-              targetRect: nearestSortTargetRect,
-            })
-          : null;
+      const sortTargetKey = sortTargetKeyFromPoint({
+        activeKey: String(active.id),
+        point: activeCenter,
+        shelfItems,
+        droppableRects,
+      });
 
       if (!sortTargetKey || sortTargetKey === String(active.id)) {
         sortIntentRef.current = { startedAt: 0, targetKey: null };
-        return sortCollisions;
+        return activeCollision(active.id, droppableContainers);
       }
 
       const now = performance.now();
@@ -588,6 +606,7 @@ function App() {
           </div>
         ) : shelfItems.length ? (
           <DndContext
+            modifiers={[restrictDragToShelfBounds]}
             sensors={sensors}
             collisionDetection={shelfCollisionDetection}
             onDragCancel={clearDragIntent}

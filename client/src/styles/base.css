@@ -1289,6 +1289,103 @@ h1 {
   font-weight: 600;
 }
 
+.reader-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 6px 20px 4px;
+}
+
+.reader-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reader-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+}
+
+.reader-settings-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.reader-settings-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.reader-font-size-control {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  gap: 12px;
+}
+
+.reader-font-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--page-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reader-font-step-large {
+  font-size: 20px;
+}
+
+.reader-font-step:disabled {
+  color: rgba(29, 29, 31, 0.28);
+  cursor: default;
+}
+
+.reader-font-size-slider {
+  width: 100%;
+  height: 32px;
+  accent-color: var(--accent);
+}
+
+.reader-font-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reader-font-option {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: var(--page-bg);
+  color: var(--text-primary);
+  font-size: 15px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reader-font-option.is-active {
+  border-color: rgba(0, 122, 255, 0.36);
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 @keyframes reader-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }

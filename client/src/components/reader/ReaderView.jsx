@@ -10,6 +10,50 @@ const TURN_DURATION_MS = 320;
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' &&
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const DEFAULT_FONT_SIZE = 100;
+const FONT_SIZE_MIN = 80;
+const FONT_SIZE_MAX = 140;
+const FONT_SIZE_STEP = 10;
+const DEFAULT_FONT_FAMILY_ID = 'system';
+const FONT_FAMILY_OPTIONS = [
+  {
+    id: DEFAULT_FONT_FAMILY_ID,
+    label: '默认',
+    value: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
+  },
+  {
+    id: 'sans',
+    label: '黑体',
+    value: '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+  },
+  {
+    id: 'serif',
+    label: '宋体',
+    value: '"Songti SC", SimSun, "Noto Serif CJK SC", serif',
+  },
+  {
+    id: 'kai',
+    label: '楷体',
+    value: '"Kaiti SC", KaiTi, serif',
+  },
+];
+
+function clampFontSize(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size)) return DEFAULT_FONT_SIZE;
+  return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size));
+}
+
+function getReaderFontFamily(fontFamilyId) {
+  return FONT_FAMILY_OPTIONS.find((option) => option.id === fontFamilyId)?.value ||
+    FONT_FAMILY_OPTIONS[0].value;
+}
+
+function applyReaderFontSettings(rendition, fontSize, fontFamilyId) {
+  if (!rendition?.themes) return;
+  rendition.themes.fontSize(`${fontSize}%`);
+  rendition.themes.font(getReaderFontFamily(fontFamilyId));
+}
 
 export function ReaderView({ book, onClose }) {
   const containerRef = useRef(null);
@@ -27,6 +71,12 @@ export function ReaderView({ book, onClose }) {
   const [activePanel, setActivePanel] = useState(null);
   const [toc, setToc] = useState([]);
   const [currentHref, setCurrentHref] = useState(null);
+  const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
+  const [fontFamilyId, setFontFamilyId] = useState(DEFAULT_FONT_FAMILY_ID);
+  const fontSettingsRef = useRef({
+    fontSize: DEFAULT_FONT_SIZE,
+    fontFamilyId: DEFAULT_FONT_FAMILY_ID,
+  });
   // 'slide' = 平移翻页, 'curl' = CSS 3D 近似卷曲
   const [turnStyle, setTurnStyle] = useState('curl');
   // Transient curl overlay: { dir: 'next' | 'prev', key } while a curl turn plays
@@ -75,6 +125,11 @@ export function ReaderView({ book, onClose }) {
           spread: 'none',
         });
         renditionRef.current = rendition;
+        applyReaderFontSettings(
+          rendition,
+          fontSettingsRef.current.fontSize,
+          fontSettingsRef.current.fontFamilyId,
+        );
 
         let startCfi;
         try {
@@ -138,6 +193,12 @@ export function ReaderView({ book, onClose }) {
     };
   }, [book?.id, flushSave, scheduleSave]);
 
+  useEffect(() => {
+    fontSettingsRef.current = { fontSize, fontFamilyId };
+    if (isLoading || error) return;
+    applyReaderFontSettings(renditionRef.current, fontSize, fontFamilyId);
+  }, [fontSize, fontFamilyId, isLoading, error]);
+
   // Tween the epub scroll-strip by one column, then let epub.js's own
   // next()/prev() sync its location (source of truth for progress).
   const slideWithin = useCallback((container, dir) => {
@@ -199,6 +260,18 @@ export function ReaderView({ book, onClose }) {
     if (!href) return;
     renditionRef.current?.display(href);
     setActivePanel(null);
+  }, []);
+
+  const decreaseFontSize = useCallback(() => {
+    setFontSize((size) => clampFontSize(size - FONT_SIZE_STEP));
+  }, []);
+
+  const increaseFontSize = useCallback(() => {
+    setFontSize((size) => clampFontSize(size + FONT_SIZE_STEP));
+  }, []);
+
+  const handleFontSizeChange = useCallback((event) => {
+    setFontSize(clampFontSize(event.target.value));
   }, []);
 
   const handlePointerDown = useCallback((event) => {
@@ -311,7 +384,7 @@ export function ReaderView({ book, onClose }) {
         </nav>
       )}
 
-      {/* Sliding panels (TOC now; settings later) */}
+      {/* Sliding panels: TOC and Aa settings */}
       {activePanel && (
         <div className="reader-panel-backdrop" onClick={() => setActivePanel(null)} />
       )}
@@ -330,6 +403,70 @@ export function ReaderView({ book, onClose }) {
               />
             ))}
           </ul>
+        </div>
+      )}
+      {activePanel === 'settings' && (
+        <div className="reader-panel reader-panel-settings" role="dialog" aria-label="阅读设置">
+          <div className="reader-panel-handle" aria-hidden="true" />
+          <h2 className="reader-panel-title">Aa 设置</h2>
+          <div className="reader-settings-content">
+            <section className="reader-settings-section" aria-labelledby="reader-font-size-title">
+              <div className="reader-settings-row">
+                <span id="reader-font-size-title" className="reader-settings-label">字体大小</span>
+                <span className="reader-settings-value">{fontSize}%</span>
+              </div>
+              <div className="reader-font-size-control">
+                <button
+                  type="button"
+                  className="reader-font-step"
+                  onClick={decreaseFontSize}
+                  disabled={fontSize <= FONT_SIZE_MIN}
+                  aria-label="减小字体"
+                >
+                  A
+                </button>
+                <input
+                  className="reader-font-size-slider"
+                  type="range"
+                  min={FONT_SIZE_MIN}
+                  max={FONT_SIZE_MAX}
+                  step={FONT_SIZE_STEP}
+                  value={fontSize}
+                  onChange={handleFontSizeChange}
+                  aria-labelledby="reader-font-size-title"
+                />
+                <button
+                  type="button"
+                  className="reader-font-step reader-font-step-large"
+                  onClick={increaseFontSize}
+                  disabled={fontSize >= FONT_SIZE_MAX}
+                  aria-label="增大字体"
+                >
+                  A
+                </button>
+              </div>
+            </section>
+
+            <section className="reader-settings-section" aria-labelledby="reader-font-family-title">
+              <div className="reader-settings-row">
+                <span id="reader-font-family-title" className="reader-settings-label">字体</span>
+              </div>
+              <div className="reader-font-options" role="group" aria-labelledby="reader-font-family-title">
+                {FONT_FAMILY_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`reader-font-option${fontFamilyId === option.id ? ' is-active' : ''}`}
+                    style={{ fontFamily: option.value }}
+                    onClick={() => setFontFamilyId(option.id)}
+                    aria-pressed={fontFamilyId === option.id}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
         </div>
       )}
     </div>

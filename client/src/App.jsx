@@ -20,6 +20,7 @@ import {
   createFolderFromBooks,
   listFolderBooks,
   listShelfItems,
+  renameFolder,
   updateFolderBookOrder,
   updateShelfItemOrder,
   uploadBook,
@@ -363,23 +364,85 @@ function FolderOverlay({
   error,
   folder,
   isLoading,
+  isRenaming,
+  isRenameSaving,
   isSavingOrder,
   onDragCancel,
   onDragEnd,
   onClose,
+  onRenameCancel,
+  onRenameDraftChange,
+  onRenameStart,
+  onRenameSubmit,
+  renameDraft,
   sensors,
 }) {
   if (!folder) {
     return null;
   }
 
+  const folderName = folder.name || '文件夹';
+
   return (
     <div className="folder-overlay" role="dialog" aria-modal="true" aria-labelledby="folder-overlay-title">
       <button className="folder-backdrop" type="button" aria-label="关闭文件夹" onClick={onClose} />
       <section className="folder-panel">
         <header className="folder-panel-header">
-          <h2 id="folder-overlay-title">{folder.name || '文件夹'}</h2>
-          <button className="folder-close-button" type="button" aria-label="关闭文件夹" onClick={onClose}>
+          {isRenaming ? (
+            <div className="folder-title-editor">
+              <h2 className="visually-hidden" id="folder-overlay-title">
+                {folderName}
+              </h2>
+              <form className="folder-rename-form" onSubmit={onRenameSubmit}>
+                <input
+                  autoFocus
+                  className="folder-rename-input"
+                  disabled={isRenameSaving}
+                  maxLength={80}
+                  onChange={(event) => onRenameDraftChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      onRenameCancel();
+                    }
+                  }}
+                  type="text"
+                  value={renameDraft}
+                  aria-label="文件夹名称"
+                />
+                <button
+                  className="folder-rename-action is-confirm"
+                  disabled={isRenameSaving}
+                  type="submit"
+                  aria-label="保存文件夹名称"
+                >
+                  <span aria-hidden="true" />
+                </button>
+                <button
+                  className="folder-rename-action is-cancel"
+                  disabled={isRenameSaving}
+                  onClick={onRenameCancel}
+                  type="button"
+                  aria-label="取消重命名"
+                >
+                  <span aria-hidden="true" />
+                </button>
+              </form>
+            </div>
+          ) : (
+            <h2 id="folder-overlay-title">
+              <button className="folder-title-button" type="button" onClick={onRenameStart}>
+                {folderName}
+              </button>
+            </h2>
+          )}
+          <button
+            className="folder-close-button"
+            disabled={isRenameSaving}
+            type="button"
+            aria-label="关闭文件夹"
+            onClick={onClose}
+          >
             <span aria-hidden="true" />
           </button>
         </header>
@@ -391,12 +454,9 @@ function FolderOverlay({
         ) : null}
 
         {isLoading ? (
-          <div className="folder-book-grid" aria-label="文件夹加载中">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div className="folder-book-shell" key={index}>
-                <div className="book-cover skeleton-cover" />
-              </div>
-            ))}
+          <div className="folder-loading-state" role="status" aria-live="polite">
+            <span className="folder-loading-spinner" aria-hidden="true" />
+            <p>正在打开文件夹</p>
           </div>
         ) : books.length ? (
           <DndContext
@@ -445,7 +505,10 @@ function App() {
   const [openFolder, setOpenFolder] = useState(null);
   const [folderBooks, setFolderBooks] = useState([]);
   const [isFolderLoading, setIsFolderLoading] = useState(false);
+  const [isRenamingFolder, setIsRenamingFolder] = useState(false);
+  const [isSavingFolderName, setIsSavingFolderName] = useState(false);
   const [isSavingFolderOrder, setIsSavingFolderOrder] = useState(false);
+  const [folderNameDraft, setFolderNameDraft] = useState('');
   const [folderError, setFolderError] = useState('');
   const [error, setError] = useState('');
   const sensors = useSensors(
@@ -657,6 +720,8 @@ function App() {
     setOpenFolder(folder);
     setFolderBooks([]);
     setFolderError('');
+    setFolderNameDraft('');
+    setIsRenamingFolder(false);
     setIsFolderLoading(true);
 
     try {
@@ -670,11 +735,18 @@ function App() {
   }
 
   function handleCloseFolder() {
+    if (isSavingFolderName) {
+      return;
+    }
+
     setOpenFolder(null);
     setFolderBooks([]);
     setFolderError('');
     setIsFolderLoading(false);
+    setIsRenamingFolder(false);
+    setIsSavingFolderName(false);
     setIsSavingFolderOrder(false);
+    setFolderNameDraft('');
     folderSortIntentRef.current = { startedAt: 0, targetKey: null };
   }
 
@@ -720,6 +792,56 @@ function App() {
 
   function clearFolderDragIntent() {
     folderSortIntentRef.current = { startedAt: 0, targetKey: null };
+  }
+
+  function handleStartFolderRename() {
+    if (!openFolder || isSavingFolderName) {
+      return;
+    }
+
+    setFolderNameDraft(openFolder.name || '文件夹');
+    setFolderError('');
+    setIsRenamingFolder(true);
+  }
+
+  function handleCancelFolderRename() {
+    if (isSavingFolderName) {
+      return;
+    }
+
+    setIsRenamingFolder(false);
+    setFolderNameDraft('');
+  }
+
+  async function handleSubmitFolderRename(event) {
+    event.preventDefault();
+
+    if (!openFolder || isSavingFolderName) {
+      return;
+    }
+
+    setIsSavingFolderName(true);
+    setFolderError('');
+
+    try {
+      const data = await renameFolder(openFolder.id, folderNameDraft.trim());
+      const renamedFolder = data.folder;
+
+      setOpenFolder(renamedFolder);
+      setShelfItems((items) =>
+        items.map((item) =>
+          item.type === 'folder' && item.id === renamedFolder.id
+            ? normalizeShelfItem({ ...item, folder: renamedFolder })
+            : item,
+        ),
+      );
+      setIsRenamingFolder(false);
+      setFolderNameDraft('');
+    } catch (err) {
+      setFolderError(err.message || '无法重命名文件夹');
+    } finally {
+      setIsSavingFolderName(false);
+    }
   }
 
   async function handleShelfDragEnd(event) {
@@ -909,10 +1031,17 @@ function App() {
         error={folderError}
         folder={openFolder}
         isLoading={isFolderLoading}
+        isRenaming={isRenamingFolder}
+        isRenameSaving={isSavingFolderName}
         isSavingOrder={isSavingFolderOrder}
         onDragCancel={clearFolderDragIntent}
         onDragEnd={handleFolderDragEnd}
         onClose={handleCloseFolder}
+        onRenameCancel={handleCancelFolderRename}
+        onRenameDraftChange={setFolderNameDraft}
+        onRenameStart={handleStartFolderRename}
+        onRenameSubmit={handleSubmitFolderRename}
+        renameDraft={folderNameDraft}
         sensors={sensors}
       />
     </main>

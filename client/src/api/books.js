@@ -60,6 +60,22 @@ export async function listFolderBooks(folderId) {
   return response.json();
 }
 
+export async function renameFolder(folderId, name) {
+  const response = await fetch(`/api/folders/${folderId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  });
+
+  if (!response.ok) {
+    throw new Error(response.status === 404 ? '文件夹不存在' : '无法重命名文件夹');
+  }
+
+  return response.json();
+}
+
 export async function updateBookOrder(bookIds) {
   const response = await fetch('/api/books/order', {
     method: 'PATCH',

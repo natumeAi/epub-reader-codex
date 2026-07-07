@@ -494,6 +494,135 @@ h1 {
   white-space: nowrap;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.folder-title-button {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.folder-title-button:active {
+  opacity: 0.58;
+}
+
+.folder-title-button:focus-visible {
+  outline: 3px solid rgba(0, 122, 255, 0.24);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.folder-title-editor {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.folder-rename-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
+  align-items: center;
+  gap: 8px;
+}
+
+.folder-rename-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(118, 118, 128, 0.13);
+  color: rgba(29, 29, 31, 0.92);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.1;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.folder-rename-input:focus {
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2);
+}
+
+.folder-rename-action {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(118, 118, 128, 0.14);
+  color: rgba(29, 29, 31, 0.68);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.folder-rename-action:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.folder-rename-action span {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.folder-rename-action.is-confirm {
+  background: rgba(52, 199, 89, 0.16);
+  color: rgb(31, 134, 61);
+}
+
+.folder-rename-action.is-confirm span::before {
+  position: absolute;
+  left: 2px;
+  top: 7px;
+  width: 11px;
+  height: 6px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  content: "";
+  transform: rotate(-45deg);
+}
+
+.folder-rename-action.is-cancel span::before,
+.folder-rename-action.is-cancel span::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 15px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.folder-rename-action.is-cancel span::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.folder-rename-action.is-cancel span::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
 .folder-close-button {
   display: grid;
   width: 36px;
@@ -549,6 +678,34 @@ h1 {
   font-size: 14px;
   font-weight: 500;
   line-height: 1.35;
+}
+
+.folder-loading-state {
+  display: grid;
+  min-height: 300px;
+  flex: 1;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 22px 18px 46px;
+  color: rgba(29, 29, 31, 0.52);
+  text-align: center;
+}
+
+.folder-loading-state p {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.folder-loading-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(29, 29, 31, 0.1);
+  border-top-color: rgba(0, 122, 255, 0.68);
+  border-radius: 999px;
+  animation: folder-loading-spin 0.82s linear infinite;
 }
 
 .folder-book-grid {
@@ -659,6 +816,12 @@ h1 {
 
   to {
     background-position: -80% 0, 0 0;
+  }
+}
+
+@keyframes folder-loading-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

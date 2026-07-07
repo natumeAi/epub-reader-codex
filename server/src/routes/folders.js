@@ -6,6 +6,7 @@ import {
   listFolders,
   listShelfItems,
   moveFolderBookToShelf,
+  moveShelfBookToFolder,
   renameFolder,
   updateFolderBookOrder,
   updateShelfItemOrder,
@@ -197,13 +198,26 @@ router.patch('/:id/books/order', (req, res, next) => {
   }
 });
 
-router.patch('/:id/books/:bookId/move-to-shelf', (req, res, next) => {
+router.patch('/:id/import-book/:bookId', (req, res, next) => {
   try {
     const db = requireDatabase(req);
     const folderId = parsePositiveInteger(req.params.id, 'folder id');
     const bookId = parsePositiveInteger(req.params.bookId, 'book id');
 
-    res.json(moveFolderBookToShelf(db, folderId, bookId));
+    res.json(moveShelfBookToFolder(db, folderId, bookId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/:id/books/:bookId/move-to-shelf', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    const folderId = parsePositiveInteger(req.params.id, 'folder id');
+    const bookId = parsePositiveInteger(req.params.bookId, 'book id');
+    const items = req.body.items === undefined ? undefined : parseShelfItems(req.body.items);
+
+    res.json(moveFolderBookToShelf(db, folderId, bookId, { items }));
   } catch (err) {
     next(err);
   }

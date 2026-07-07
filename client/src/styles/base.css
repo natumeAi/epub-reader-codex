@@ -200,6 +200,33 @@ h1 {
 .book-shell.is-dragging {
   z-index: 2;
   cursor: grabbing;
+  opacity: 0.28;
+}
+
+.drag-preview {
+  display: grid;
+  width: var(--book-cover-width);
+  height: var(--book-cover-height);
+  place-items: center;
+  pointer-events: none;
+}
+
+.drag-preview .book-cover,
+.drag-preview .folder-cover {
+  box-shadow:
+    0 24px 38px rgba(38, 31, 24, 0.26),
+    0 8px 14px rgba(38, 31, 24, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+  transform: scale(1.04);
+}
+
+.fixed-drag-preview {
+  position: fixed;
+  z-index: 100;
+  width: var(--book-cover-width);
+  height: var(--book-cover-height);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
 }
 
 .book-shell:focus-visible .book-cover {
@@ -742,6 +769,7 @@ h1 {
 
 .folder-book-shell.is-dragging {
   z-index: 2;
+  opacity: 0.28;
 }
 
 .folder-book-shell.is-dragging .folder-book-cover-button {

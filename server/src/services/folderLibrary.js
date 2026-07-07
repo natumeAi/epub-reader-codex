@@ -160,6 +160,55 @@ export function renameFolder(db, folderId, name) {
   return result.changes ? getFolder(db, folderId) : null;
 }
 
+export function moveShelfBookToFolder(db, folderId, bookId) {
+  return db.transaction(() => {
+    const folder = getFolder(db, folderId);
+
+    if (!folder) {
+      const error = new Error('Folder not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const book = db.prepare('SELECT * FROM books WHERE id = ?').get(bookId);
+
+    if (!book) {
+      const error = new Error('Book not found');
+      error.status = 404;
+      throw error;
+    }
+
+    if (book.folder_id !== null) {
+      const error = new Error('Only root shelf books can move into folders');
+      error.status = 409;
+      throw error;
+    }
+
+    const nextSortOrder = db
+      .prepare(
+        `SELECT COALESCE(MAX(sort_order), 0) + 1000 AS value
+         FROM books
+         WHERE folder_id = ?`,
+      )
+      .get(folderId).value;
+
+    db.prepare(
+      `UPDATE books
+       SET folder_id = ?,
+           sort_order = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND folder_id IS NULL`,
+    ).run(folderId, nextSortOrder, bookId);
+
+    return {
+      folder: getFolder(db, folderId),
+      books: listBooks(db, { folderId }),
+      shelfItems: listShelfItems(db),
+    };
+  })();
+}
+
 export function updateFolderBookOrder(db, folderId, bookIds) {
   const folder = getFolder(db, folderId);
 
@@ -207,7 +256,7 @@ export function updateFolderBookOrder(db, folderId, bookIds) {
   return listBooks(db, { folderId });
 }
 
-export function moveFolderBookToShelf(db, folderId, bookId) {
+export function moveFolderBookToShelf(db, folderId, bookId, options = {}) {
   return db.transaction(() => {
     const folder = getFolder(db, folderId);
 
@@ -240,11 +289,13 @@ export function moveFolderBookToShelf(db, folderId, bookId) {
       throw error;
     }
 
-    const shelfItemsWithBook = [
-      ...currentShelfItems.slice(0, folderIndex + 1),
-      { type: 'book', id: bookId },
-      ...currentShelfItems.slice(folderIndex + 1),
-    ];
+    const shelfItemsWithBook =
+      options.items ||
+      [
+        ...currentShelfItems.slice(0, folderIndex + 1),
+        { type: 'book', id: bookId },
+        ...currentShelfItems.slice(folderIndex + 1),
+      ];
 
     db.prepare(
       `UPDATE books
@@ -265,6 +316,20 @@ export function moveFolderBookToShelf(db, folderId, bookId) {
     const orderedShelfItems = remainingBookCount === 0
       ? shelfItemsWithBook.filter((item) => item.type !== 'folder' || item.id !== folderId)
       : shelfItemsWithBook;
+    const currentItemKeys = currentShelfItems
+      .filter((item) => remainingBookCount > 0 || item.type !== 'folder' || item.id !== folderId)
+      .map((item) => `${item.type}:${item.id}`);
+    const expectedItemKeys = new Set([...currentItemKeys, `book:${bookId}`]);
+    const orderedItemKeys = orderedShelfItems.map((item) => `${item.type}:${item.id}`);
+    const hasExpectedShelf =
+      expectedItemKeys.size === orderedItemKeys.length &&
+      orderedItemKeys.every((itemKey) => expectedItemKeys.has(itemKey));
+
+    if (!hasExpectedShelf) {
+      const error = new Error('Shelf order is out of date');
+      error.status = 409;
+      throw error;
+    }
 
     const updateBookOrder = db.prepare(
       `UPDATE books

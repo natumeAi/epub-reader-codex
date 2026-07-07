@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   closestCenter,
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
@@ -21,6 +22,7 @@ import {
   listFolderBooks,
   listShelfItems,
   moveFolderBookToShelf,
+  moveShelfBookToFolder,
   renameFolder,
   updateFolderBookOrder,
   updateShelfItemOrder,
@@ -59,6 +61,16 @@ function folderBookKey(book) {
 function normalizeFolderBook(book) {
   return {
     ...book,
+    key: folderBookKey(book),
+  };
+}
+
+function normalizeShelfBookFromFolderBook(book) {
+  return {
+    type: 'book',
+    id: book.id,
+    sortOrder: book.sortOrder,
+    book,
     key: folderBookKey(book),
   };
 }
@@ -183,26 +195,6 @@ function restrictDragToShelfBounds({ activeNodeRect, transform }) {
   };
 }
 
-function restrictDragToFolderBounds({ activeNodeRect, transform }) {
-  const folderElement = document.querySelector('.folder-book-grid');
-
-  if (!folderElement || !activeNodeRect) {
-    return transform;
-  }
-
-  const folderRect = folderElement.getBoundingClientRect();
-  const minX = folderRect.left - activeNodeRect.left;
-  const maxX = folderRect.right - activeNodeRect.right;
-  const minY = folderRect.top - activeNodeRect.top;
-  const maxY = folderRect.bottom - activeNodeRect.bottom;
-
-  return {
-    ...transform,
-    x: Math.min(Math.max(transform.x, minX), maxX),
-    y: Math.min(Math.max(transform.y, minY), maxY),
-  };
-}
-
 function BookCover({ book }) {
   if (book.coverUrl) {
     return (
@@ -257,6 +249,79 @@ function ShelfItemCover({ item }) {
       <BookCover book={item.book} />
     </span>
   );
+}
+
+function DragPreview({ item }) {
+  if (!item) {
+    return null;
+  }
+
+  return (
+    <div className="drag-preview">
+      {item.type === 'folder-book' ? (
+        <span className="book-cover">
+          <BookCover book={item.book} />
+        </span>
+      ) : (
+        <ShelfItemCover item={item} />
+      )}
+    </div>
+  );
+}
+
+function FixedDragPreview({ item, point }) {
+  if (!item || !point) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed-drag-preview"
+      style={{
+        left: point.x,
+        top: point.y,
+      }}
+    >
+      <DragPreview item={item} />
+    </div>
+  );
+}
+
+function pointerCenterFromDragEvent(event) {
+  const initialRect = event.active.rect.current.initial;
+
+  if (!initialRect) {
+    return null;
+  }
+
+  return {
+    x: initialRect.left + event.delta.x + initialRect.width / 2,
+    y: initialRect.top + event.delta.y + initialRect.height / 2,
+  };
+}
+
+function pointFromInputEvent(event) {
+  if (!event) {
+    return null;
+  }
+
+  const touch = event.touches?.[0] || event.changedTouches?.[0];
+
+  if (touch) {
+    return {
+      x: touch.clientX,
+      y: touch.clientY,
+    };
+  }
+
+  if (typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+    return {
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }
+
+  return null;
 }
 
 function SortableShelfItem({ disabled, dragIntent, item, onOpenFolder }) {
@@ -383,7 +448,6 @@ function SortableFolderBook({ book, disabled, isMovingOut, onMoveOut }) {
 
 function FolderOverlay({
   books,
-  collisionDetection,
   error,
   folder,
   isLoading,
@@ -391,8 +455,6 @@ function FolderOverlay({
   isRenameSaving,
   movingBookId,
   isSavingOrder,
-  onDragCancel,
-  onDragEnd,
   onClose,
   onMoveBookToShelf,
   onRenameCancel,
@@ -400,7 +462,6 @@ function FolderOverlay({
   onRenameStart,
   onRenameSubmit,
   renameDraft,
-  sensors,
 }) {
   if (!folder) {
     return null;
@@ -484,27 +545,19 @@ function FolderOverlay({
             <p>正在打开文件夹</p>
           </div>
         ) : books.length ? (
-          <DndContext
-            modifiers={[restrictDragToFolderBounds]}
-            sensors={sensors}
-            collisionDetection={collisionDetection}
-            onDragCancel={onDragCancel}
-            onDragEnd={onDragEnd}
-          >
-            <SortableContext items={books.map((book) => book.key)} strategy={rectSortingStrategy}>
-              <div className="folder-book-grid" aria-label="文件夹书籍">
-                {books.map((book) => (
-                  <SortableFolderBook
-                    book={book}
-                    disabled={isSavingOrder || movingBookId !== null}
-                    isMovingOut={movingBookId === book.id}
-                    key={book.key}
-                    onMoveOut={onMoveBookToShelf}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          <SortableContext items={books.map((book) => book.key)} strategy={rectSortingStrategy}>
+            <div className="folder-book-grid" aria-label="文件夹书籍">
+              {books.map((book) => (
+                <SortableFolderBook
+                  book={book}
+                  disabled={isSavingOrder || movingBookId !== null}
+                  isMovingOut={movingBookId === book.id}
+                  key={book.key}
+                  onMoveOut={onMoveBookToShelf}
+                />
+              ))}
+            </div>
+          </SortableContext>
         ) : (
           <div className="folder-empty-state" role="status">
             <div className="empty-cover" aria-hidden="true" />
@@ -520,10 +573,15 @@ function App() {
   const fileInputRef = useRef(null);
   const dragIntentFrameRef = useRef(null);
   const dragIntentRef = useRef({ type: 'idle', targetKey: null });
+  const folderBookShelfDragRef = useRef(null);
   const folderSortIntentRef = useRef({ startedAt: 0, targetKey: null });
   const ignoreFolderClickUntilRef = useRef(0);
+  const latestPointerPointRef = useRef(null);
+  const pointerTrackingCleanupRef = useRef(null);
   const sortIntentRef = useRef({ startedAt: 0, targetKey: null });
   const [shelfItems, setShelfItems] = useState([]);
+  const [activeDragPreview, setActiveDragPreview] = useState(null);
+  const [fixedDragPreviewPoint, setFixedDragPreviewPoint] = useState(null);
   const [dragIntent, setDragIntent] = useState({ type: 'idle', targetKey: null });
   const [hasLoadedShelf, setHasLoadedShelf] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -611,11 +669,21 @@ function App() {
 
       if (lockedTarget) {
         const canCreateFolder = activeType === 'book' && lockedTarget.type === 'book';
+        const canMoveIntoFolder = activeType === 'book' && lockedTarget.type === 'folder';
         const isCenterTarget = pointInRect(activeCenter, centerRect(lockedTarget.rect));
 
         if (canCreateFolder && isCenterTarget) {
           publishDragIntent({
             type: 'merge',
+            targetKey: lockedTarget.key,
+          });
+
+          return activeCollision(active.id, droppableContainers);
+        }
+
+        if (canMoveIntoFolder && isCenterTarget) {
+          publishDragIntent({
+            type: 'absorb',
             targetKey: lockedTarget.key,
           });
 
@@ -724,6 +792,27 @@ function App() {
     },
     [folderBooks],
   );
+  const activeDragModifier = useCallback((args) => {
+    const activeType = args.active?.data.current?.type;
+
+    if (activeType === 'folder-book') {
+      return args.transform;
+    }
+
+    return restrictDragToShelfBounds(args);
+  }, []);
+  const appCollisionDetection = useCallback(
+    (args) => {
+      const activeType = args.active.data.current?.type;
+
+      if (activeType === 'folder-book' && !folderBookShelfDragRef.current) {
+        return folderCollisionDetection(args);
+      }
+
+      return shelfCollisionDetection(args);
+    },
+    [folderCollisionDetection, shelfCollisionDetection],
+  );
 
   async function loadShelf() {
     setIsLoading(true);
@@ -789,6 +878,8 @@ function App() {
       if (dragIntentFrameRef.current) {
         cancelAnimationFrame(dragIntentFrameRef.current);
       }
+
+      stopPointerTracking();
     },
     [],
   );
@@ -822,6 +913,127 @@ function App() {
 
   function clearFolderDragIntent() {
     folderSortIntentRef.current = { startedAt: 0, targetKey: null };
+  }
+
+  function stopPointerTracking() {
+    pointerTrackingCleanupRef.current?.();
+    pointerTrackingCleanupRef.current = null;
+    latestPointerPointRef.current = null;
+  }
+
+  function startPointerTracking() {
+    stopPointerTracking();
+
+    const updatePointerPoint = (event) => {
+      const point = pointFromInputEvent(event);
+
+      if (!point) {
+        return;
+      }
+
+      latestPointerPointRef.current = point;
+
+      if (folderBookShelfDragRef.current) {
+        setFixedDragPreviewPoint(point);
+      }
+    };
+
+    window.addEventListener('pointermove', updatePointerPoint, { passive: true });
+    window.addEventListener('mousemove', updatePointerPoint, { passive: true });
+    window.addEventListener('touchmove', updatePointerPoint, { passive: true });
+    pointerTrackingCleanupRef.current = () => {
+      window.removeEventListener('pointermove', updatePointerPoint);
+      window.removeEventListener('mousemove', updatePointerPoint);
+      window.removeEventListener('touchmove', updatePointerPoint);
+    };
+  }
+
+  function clearFolderBookShelfDrag() {
+    folderBookShelfDragRef.current = null;
+  }
+
+  function restoreFolderBookShelfDrag() {
+    const dragState = folderBookShelfDragRef.current;
+
+    if (!dragState) {
+      return;
+    }
+
+    clearFolderBookShelfDrag();
+    setShelfItems(dragState.previousShelfItems);
+    setOpenFolder(dragState.folder);
+    setFolderBooks(dragState.previousFolderBooks);
+    setFolderError('');
+    setIsFolderLoading(false);
+    setIsRenamingFolder(false);
+    setMovingFolderBookId(null);
+    clearFolderDragIntent();
+    clearDragIntent();
+    setFixedDragPreviewPoint(null);
+  }
+
+  function beginFolderBookShelfDrag(book) {
+    if (!openFolder || !book || folderBookShelfDragRef.current) {
+      return;
+    }
+
+    const previousShelfItems = shelfItems;
+    const previousFolderBooks = folderBooks;
+    const remainingFolderBooks = folderBooks.filter((folderBook) => folderBook.id !== book.id);
+    const folderIndex = shelfItems.findIndex(
+      (item) => item.type === 'folder' && item.id === openFolder.id,
+    );
+    const tempShelfBook = normalizeShelfBookFromFolderBook(book);
+    const baseShelfItems =
+      remainingFolderBooks.length === 0
+        ? shelfItems.filter((item) => item.type !== 'folder' || item.id !== openFolder.id)
+        : shelfItems.map((item) => {
+            if (item.type !== 'folder' || item.id !== openFolder.id) {
+              return item;
+            }
+
+            return normalizeShelfItem({
+              ...item,
+              folder: {
+                ...item.folder,
+                bookCount: Math.max(0, (item.folder?.bookCount ?? previousFolderBooks.length) - 1),
+                previewBooks: (item.folder?.previewBooks || []).filter(
+                  (previewBook) => previewBook.id !== book.id,
+                ),
+              },
+            });
+          });
+    const insertIndex =
+      folderIndex < 0
+        ? baseShelfItems.length
+        : remainingFolderBooks.length === 0
+          ? folderIndex
+          : folderIndex + 1;
+    const nextShelfItems = [
+      ...baseShelfItems.slice(0, insertIndex),
+      tempShelfBook,
+      ...baseShelfItems.slice(insertIndex),
+    ];
+
+    folderBookShelfDragRef.current = {
+      book,
+      folder: openFolder,
+      previousFolderBooks,
+      previousShelfItems,
+    };
+    setActiveDragPreview({
+      type: 'folder-book',
+      book,
+    });
+    setShelfItems(nextShelfItems);
+    setOpenFolder(null);
+    setFolderBooks([]);
+    setFolderError('');
+    setIsFolderLoading(false);
+    setIsRenamingFolder(false);
+    setMovingFolderBookId(null);
+    clearFolderDragIntent();
+    publishDragIntent({ type: 'sort', targetKey: null });
   }
 
   function handleStartFolderRename() {
@@ -874,6 +1086,143 @@ function App() {
     }
   }
 
+  function handleDragStart(event) {
+    const activeType = event.active.data.current?.type;
+
+    setFixedDragPreviewPoint(null);
+    startPointerTracking();
+
+    if (activeType === 'folder-book') {
+      setActiveDragPreview({
+        type: 'folder-book',
+        book: event.active.data.current.book,
+      });
+      return;
+    }
+
+    setActiveDragPreview(event.active.data.current?.item || null);
+  }
+
+  function handleDragMove(event) {
+    const activeType = event.active.data.current?.type;
+
+    if (activeType !== 'folder-book') {
+      return;
+    }
+
+    const activeCenter = pointerCenterFromDragEvent(event);
+
+    if (!activeCenter) {
+      return;
+    }
+
+    if (folderBookShelfDragRef.current) {
+      setFixedDragPreviewPoint(latestPointerPointRef.current || activeCenter);
+      return;
+    }
+
+    if (!openFolder) {
+      return;
+    }
+
+    const folderPanel = document.querySelector('.folder-panel');
+
+    if (!folderPanel) {
+      return;
+    }
+
+    if (!pointInRect(activeCenter, folderPanel.getBoundingClientRect())) {
+      setFixedDragPreviewPoint(latestPointerPointRef.current || activeCenter);
+      beginFolderBookShelfDrag(event.active.data.current.book);
+    }
+  }
+
+  function handleDragCancel(event) {
+    setActiveDragPreview(null);
+    setFixedDragPreviewPoint(null);
+    stopPointerTracking();
+
+    if (folderBookShelfDragRef.current) {
+      restoreFolderBookShelfDrag();
+      return;
+    }
+
+    if (event.active.data.current?.type === 'folder-book') {
+      clearFolderDragIntent();
+      return;
+    }
+
+    clearDragIntent();
+  }
+
+  async function handleFolderBookShelfDragEnd(event) {
+    const dragState = folderBookShelfDragRef.current;
+
+    if (!dragState) {
+      return;
+    }
+
+    const { active, over } = event;
+    const oldIndex = shelfItems.findIndex((item) => item.key === String(active.id));
+    const newIndex = over
+      ? shelfItems.findIndex((item) => item.key === String(over.id))
+      : oldIndex;
+    const orderedShelfItems =
+      oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex
+        ? arrayMove(shelfItems, oldIndex, newIndex)
+        : shelfItems;
+    const orderItems = orderedShelfItems.map((item) =>
+      item.key === dragState.book.key
+        ? { type: 'book', id: dragState.book.id }
+        : toShelfOrderItem(item),
+    );
+
+    setShelfItems(orderedShelfItems);
+    setIsSavingOrder(true);
+    setError('');
+    clearDragIntent();
+
+    try {
+      const data = await moveFolderBookToShelf(
+        dragState.folder.id,
+        dragState.book.id,
+        orderItems,
+      );
+      clearFolderBookShelfDrag();
+      setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
+    } catch (err) {
+      const previousShelfItems = dragState.previousShelfItems;
+      const previousFolderBooks = dragState.previousFolderBooks;
+      const previousFolder = dragState.folder;
+
+      clearFolderBookShelfDrag();
+      setShelfItems(previousShelfItems);
+      setOpenFolder(previousFolder);
+      setFolderBooks(previousFolderBooks);
+      setFolderError(err.message || '无法移出书籍');
+    } finally {
+      setIsSavingOrder(false);
+    }
+  }
+
+  async function handleDragEnd(event) {
+    setActiveDragPreview(null);
+    setFixedDragPreviewPoint(null);
+    stopPointerTracking();
+
+    if (folderBookShelfDragRef.current) {
+      await handleFolderBookShelfDragEnd(event);
+      return;
+    }
+
+    if (event.active.data.current?.type === 'folder-book') {
+      await handleFolderDragEnd(event);
+      return;
+    }
+
+    await handleShelfDragEnd(event);
+  }
+
   async function handleShelfDragEnd(event) {
     const { active, over } = event;
     const finalDragIntent = dragIntentRef.current;
@@ -905,6 +1254,29 @@ function App() {
       } catch (err) {
         setShelfItems(previousShelfItems);
         setError(err.message || '无法创建文件夹');
+      } finally {
+        setIsSavingOrder(false);
+      }
+
+      return;
+    }
+
+    if (
+      finalDragIntent.type === 'absorb' &&
+      activeItem?.type === 'book' &&
+      targetItem?.type === 'folder'
+    ) {
+      const previousShelfItems = shelfItems;
+
+      setIsSavingOrder(true);
+      setError('');
+
+      try {
+        const data = await moveShelfBookToFolder(targetItem.id, activeItem.id);
+        setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
+      } catch (err) {
+        setShelfItems(previousShelfItems);
+        setError(err.message || '无法移入文件夹');
       } finally {
         setIsSavingOrder(false);
       }
@@ -1007,7 +1379,16 @@ function App() {
   }
 
   return (
-    <main className="app-shell" aria-label="EPUB Reader">
+    <DndContext
+      modifiers={[activeDragModifier]}
+      sensors={sensors}
+      collisionDetection={appCollisionDetection}
+      onDragCancel={handleDragCancel}
+      onDragEnd={handleDragEnd}
+      onDragMove={handleDragMove}
+      onDragStart={handleDragStart}
+    >
+      <main className="app-shell" aria-label="EPUB Reader">
       <section className="library-home">
         <div className="library-header">
           <div>
@@ -1054,27 +1435,19 @@ function App() {
             ))}
           </div>
         ) : shelfItems.length ? (
-          <DndContext
-            modifiers={[restrictDragToShelfBounds]}
-            sensors={sensors}
-            collisionDetection={shelfCollisionDetection}
-            onDragCancel={clearDragIntent}
-            onDragEnd={handleShelfDragEnd}
-          >
-            <SortableContext items={shelfItems.map((item) => item.key)} strategy={rectSortingStrategy}>
-              <div className="shelf-grid" aria-label="书架列表">
-                {shelfItems.map((item) => (
-                  <SortableShelfItem
-                    disabled={isSavingOrder}
-                    dragIntent={dragIntent}
-                    item={item}
-                    key={item.key}
-                    onOpenFolder={handleOpenFolder}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          <SortableContext items={shelfItems.map((item) => item.key)} strategy={rectSortingStrategy}>
+            <div className="shelf-grid" aria-label="书架列表">
+              {shelfItems.map((item) => (
+                <SortableShelfItem
+                  disabled={isSavingOrder}
+                  dragIntent={dragIntent}
+                  item={item}
+                  key={item.key}
+                  onOpenFolder={handleOpenFolder}
+                />
+              ))}
+            </div>
+          </SortableContext>
         ) : (
           <div className="empty-state" role="status">
             <div className="empty-cover" aria-hidden="true" />
@@ -1084,7 +1457,6 @@ function App() {
       </section>
       <FolderOverlay
         books={folderBooks}
-        collisionDetection={folderCollisionDetection}
         error={folderError}
         folder={openFolder}
         isLoading={isFolderLoading}
@@ -1092,8 +1464,6 @@ function App() {
         isRenameSaving={isSavingFolderName}
         movingBookId={movingFolderBookId}
         isSavingOrder={isSavingFolderOrder}
-        onDragCancel={clearFolderDragIntent}
-        onDragEnd={handleFolderDragEnd}
         onClose={handleCloseFolder}
         onMoveBookToShelf={handleMoveFolderBookToShelf}
         onRenameCancel={handleCancelFolderRename}
@@ -1101,9 +1471,13 @@ function App() {
         onRenameStart={handleStartFolderRename}
         onRenameSubmit={handleSubmitFolderRename}
         renameDraft={folderNameDraft}
-        sensors={sensors}
       />
-    </main>
+      </main>
+      <DragOverlay dropAnimation={null}>
+        <DragPreview item={fixedDragPreviewPoint ? null : activeDragPreview} />
+      </DragOverlay>
+      <FixedDragPreview item={activeDragPreview} point={fixedDragPreviewPoint} />
+    </DndContext>
   );
 }
 

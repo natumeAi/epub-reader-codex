@@ -5,3 +5,10 @@ dist/
 .env
 .env.*
 server/data/*.sqlite*
+
+# Runtime library data (uploaded books & extracted covers)
+server/data/books/
+server/data/covers/
+
+# Local editor / tooling config
+.claude/

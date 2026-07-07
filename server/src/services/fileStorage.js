@@ -1,6 +1,5 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 
@@ -18,6 +17,30 @@ export function ensureCoverDirectory() {
   mkdirSync(coversDir, { recursive: true });
 }
 
+function safeStorageFileName(fileName) {
+  const baseName = path.basename(fileName).replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_').trim();
+
+  if (!baseName || baseName === '.epub') {
+    return 'Untitled Book.epub';
+  }
+
+  return isEpubFileName(baseName) ? baseName : `${baseName}.epub`;
+}
+
+function availableBookFileName(fileName) {
+  const safeName = safeStorageFileName(fileName);
+  const parsedName = path.parse(safeName);
+  let candidateName = safeName;
+  let index = 1;
+
+  while (existsSync(path.join(booksDir, candidateName))) {
+    candidateName = `${parsedName.name} (${index})${parsedName.ext || '.epub'}`;
+    index += 1;
+  }
+
+  return candidateName;
+}
+
 export function createEpubUploadStorage() {
   return multer.diskStorage({
     destination(req, file, callback) {
@@ -25,7 +48,7 @@ export function createEpubUploadStorage() {
       callback(null, booksDir);
     },
     filename(req, file, callback) {
-      callback(null, `${Date.now()}-${randomUUID()}.epub`);
+      callback(null, availableBookFileName(fileNameFromUpload(file)));
     },
   });
 }

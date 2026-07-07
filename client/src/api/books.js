@@ -91,3 +91,19 @@ export async function updateShelfItemOrder(items) {
 
   return response.json();
 }
+
+export async function updateFolderBookOrder(folderId, bookIds) {
+  const response = await fetch(`/api/folders/${folderId}/books/order`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ bookIds }),
+  });
+
+  if (!response.ok) {
+    throw new Error(response.status === 409 ? '文件夹已变化，请刷新后重试' : '无法保存文件夹顺序');
+  }
+
+  return response.json();
+}

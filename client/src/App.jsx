@@ -20,6 +20,7 @@ import {
   createFolderFromBooks,
   listFolderBooks,
   listShelfItems,
+  updateFolderBookOrder,
   updateShelfItemOrder,
   uploadBook,
 } from './api/books.js';
@@ -46,6 +47,17 @@ function normalizeShelfItem(item) {
   return {
     ...item,
     key: shelfItemKey(item),
+  };
+}
+
+function folderBookKey(book) {
+  return `folder-book:${book.id}`;
+}
+
+function normalizeFolderBook(book) {
+  return {
+    ...book,
+    key: folderBookKey(book),
   };
 }
 
@@ -122,8 +134,8 @@ function isPointBeforeSortRect(point, rect) {
   return point.x < centerX;
 }
 
-function sortTargetKeyFromPoint({ activeKey, point, shelfItems, droppableRects }) {
-  const orderedKeys = shelfItems.map((item) => item.key);
+function sortTargetKeyFromPoint({ activeKey, point, items, droppableRects }) {
+  const orderedKeys = items.map((item) => item.key);
   const oldIndex = orderedKeys.indexOf(activeKey);
 
   if (oldIndex < 0) {
@@ -161,6 +173,26 @@ function restrictDragToShelfBounds({ activeNodeRect, transform }) {
   const maxX = shelfRect.right - activeNodeRect.right;
   const minY = shelfRect.top - activeNodeRect.top;
   const maxY = shelfRect.bottom - activeNodeRect.bottom;
+
+  return {
+    ...transform,
+    x: Math.min(Math.max(transform.x, minX), maxX),
+    y: Math.min(Math.max(transform.y, minY), maxY),
+  };
+}
+
+function restrictDragToFolderBounds({ activeNodeRect, transform }) {
+  const folderElement = document.querySelector('.folder-book-grid');
+
+  if (!folderElement || !activeNodeRect) {
+    return transform;
+  }
+
+  const folderRect = folderElement.getBoundingClientRect();
+  const minX = folderRect.left - activeNodeRect.left;
+  const maxX = folderRect.right - activeNodeRect.right;
+  const minY = folderRect.top - activeNodeRect.top;
+  const maxY = folderRect.bottom - activeNodeRect.bottom;
 
   return {
     ...transform,
@@ -283,12 +315,59 @@ function SortableShelfItem({ disabled, dragIntent, item, onOpenFolder }) {
   );
 }
 
+function SortableFolderBook({ book, disabled }) {
+  const {
+    attributes,
+    isDragging,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({
+    id: book.key,
+    data: {
+      book,
+      type: 'folder-book',
+    },
+    disabled,
+    transition: shelfSortTransition,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  const className = ['folder-book-shell', isDragging ? 'is-dragging' : '']
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <button
+      ref={setNodeRef}
+      className={className}
+      style={style}
+      type="button"
+      aria-label={book.title || '未命名书籍'}
+      {...attributes}
+      {...listeners}
+    >
+      <span className="book-cover">
+        <BookCover book={book} />
+      </span>
+    </button>
+  );
+}
+
 function FolderOverlay({
   books,
+  collisionDetection,
   error,
   folder,
   isLoading,
+  isSavingOrder,
+  onDragCancel,
+  onDragEnd,
   onClose,
+  sensors,
 }) {
   if (!folder) {
     return null;
@@ -320,20 +399,25 @@ function FolderOverlay({
             ))}
           </div>
         ) : books.length ? (
-          <div className="folder-book-grid" aria-label="文件夹书籍">
-            {books.map((book) => (
-              <button
-                className="folder-book-shell"
-                type="button"
-                aria-label={book.title || '未命名书籍'}
-                key={book.id}
-              >
-                <span className="book-cover">
-                  <BookCover book={book} />
-                </span>
-              </button>
-            ))}
-          </div>
+          <DndContext
+            modifiers={[restrictDragToFolderBounds]}
+            sensors={sensors}
+            collisionDetection={collisionDetection}
+            onDragCancel={onDragCancel}
+            onDragEnd={onDragEnd}
+          >
+            <SortableContext items={books.map((book) => book.key)} strategy={rectSortingStrategy}>
+              <div className="folder-book-grid" aria-label="文件夹书籍">
+                {books.map((book) => (
+                  <SortableFolderBook
+                    book={book}
+                    disabled={isSavingOrder}
+                    key={book.key}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         ) : (
           <div className="folder-empty-state" role="status">
             <div className="empty-cover" aria-hidden="true" />
@@ -349,6 +433,7 @@ function App() {
   const fileInputRef = useRef(null);
   const dragIntentFrameRef = useRef(null);
   const dragIntentRef = useRef({ type: 'idle', targetKey: null });
+  const folderSortIntentRef = useRef({ startedAt: 0, targetKey: null });
   const ignoreFolderClickUntilRef = useRef(0);
   const sortIntentRef = useRef({ startedAt: 0, targetKey: null });
   const [shelfItems, setShelfItems] = useState([]);
@@ -360,6 +445,7 @@ function App() {
   const [openFolder, setOpenFolder] = useState(null);
   const [folderBooks, setFolderBooks] = useState([]);
   const [isFolderLoading, setIsFolderLoading] = useState(false);
+  const [isSavingFolderOrder, setIsSavingFolderOrder] = useState(false);
   const [folderError, setFolderError] = useState('');
   const [error, setError] = useState('');
   const sensors = useSensors(
@@ -449,7 +535,7 @@ function App() {
         const sortTargetKey = sortTargetKeyFromPoint({
           activeKey: String(active.id),
           point: activeCenter,
-          shelfItems,
+          items: shelfItems,
           droppableRects,
         });
 
@@ -481,7 +567,7 @@ function App() {
       const sortTargetKey = sortTargetKeyFromPoint({
         activeKey: String(active.id),
         point: activeCenter,
-        shelfItems,
+        items: shelfItems,
         droppableRects,
       });
 
@@ -508,6 +594,44 @@ function App() {
       return collisionForKey(sortTargetKey, droppableContainers);
     },
     [publishDragIntent, shelfItems],
+  );
+  const folderCollisionDetection = useCallback(
+    (args) => {
+      const { active, collisionRect, droppableContainers, droppableRects } = args;
+      const activeCenter = {
+        x: collisionRect.left + collisionRect.width / 2,
+        y: collisionRect.top + collisionRect.height / 2,
+      };
+      const sortTargetKey = sortTargetKeyFromPoint({
+        activeKey: String(active.id),
+        point: activeCenter,
+        items: folderBooks,
+        droppableRects,
+      });
+
+      if (!sortTargetKey || sortTargetKey === String(active.id)) {
+        folderSortIntentRef.current = { startedAt: 0, targetKey: null };
+        return activeCollision(active.id, droppableContainers);
+      }
+
+      const now = performance.now();
+
+      if (folderSortIntentRef.current.targetKey !== sortTargetKey) {
+        folderSortIntentRef.current = {
+          startedAt: now,
+          targetKey: sortTargetKey,
+        };
+
+        return activeCollision(active.id, droppableContainers);
+      }
+
+      if (now - folderSortIntentRef.current.startedAt < sortIntentDelayMs) {
+        return activeCollision(active.id, droppableContainers);
+      }
+
+      return collisionForKey(sortTargetKey, droppableContainers);
+    },
+    [folderBooks],
   );
 
   async function loadShelf() {
@@ -537,7 +661,7 @@ function App() {
 
     try {
       const data = await listFolderBooks(folder.id);
-      setFolderBooks(data.books || []);
+      setFolderBooks((data.books || []).map(normalizeFolderBook));
     } catch (err) {
       setFolderError(err.message || '无法加载文件夹');
     } finally {
@@ -550,6 +674,8 @@ function App() {
     setFolderBooks([]);
     setFolderError('');
     setIsFolderLoading(false);
+    setIsSavingFolderOrder(false);
+    folderSortIntentRef.current = { startedAt: 0, targetKey: null };
   }
 
   useEffect(() => {
@@ -590,6 +716,10 @@ function App() {
     dragIntentRef.current = { type: 'idle', targetKey: null };
     sortIntentRef.current = { startedAt: 0, targetKey: null };
     setDragIntent(dragIntentRef.current);
+  }
+
+  function clearFolderDragIntent() {
+    folderSortIntentRef.current = { startedAt: 0, targetKey: null };
   }
 
   async function handleShelfDragEnd(event) {
@@ -656,6 +786,44 @@ function App() {
       setError(err.message || '无法保存书架顺序');
     } finally {
       setIsSavingOrder(false);
+    }
+  }
+
+  async function handleFolderDragEnd(event) {
+    const { active, over } = event;
+
+    clearFolderDragIntent();
+
+    if (!openFolder || isSavingFolderOrder || !over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = folderBooks.findIndex((book) => book.key === String(active.id));
+    const newIndex = folderBooks.findIndex((book) => book.key === String(over.id));
+
+    if (oldIndex < 0 || newIndex < 0) {
+      return;
+    }
+
+    const previousFolderBooks = folderBooks;
+    const reorderedFolderBooks = arrayMove(folderBooks, oldIndex, newIndex);
+
+    setFolderBooks(reorderedFolderBooks);
+    setIsSavingFolderOrder(true);
+    setFolderError('');
+
+    try {
+      const data = await updateFolderBookOrder(
+        openFolder.id,
+        reorderedFolderBooks.map((book) => book.id),
+      );
+      setFolderBooks((data.books || reorderedFolderBooks).map(normalizeFolderBook));
+      await loadShelf();
+    } catch (err) {
+      setFolderBooks(previousFolderBooks);
+      setFolderError(err.message || '无法保存文件夹顺序');
+    } finally {
+      setIsSavingFolderOrder(false);
     }
   }
 
@@ -737,10 +905,15 @@ function App() {
       </section>
       <FolderOverlay
         books={folderBooks}
+        collisionDetection={folderCollisionDetection}
         error={folderError}
         folder={openFolder}
         isLoading={isFolderLoading}
+        isSavingOrder={isSavingFolderOrder}
+        onDragCancel={clearFolderDragIntent}
+        onDragEnd={handleFolderDragEnd}
         onClose={handleCloseFolder}
+        sensors={sensors}
       />
     </main>
   );

@@ -624,6 +624,11 @@ h1 {
   background: rgba(20, 20, 24, 0.22);
   backdrop-filter: blur(14px) saturate(1.08);
   cursor: default;
+  animation: folder-fade-in 0.22s ease-out;
+}
+
+.folder-overlay.is-closing .folder-backdrop {
+  animation: folder-fade-out 0.18s ease-in forwards;
 }
 
 .folder-panel {
@@ -641,6 +646,11 @@ h1 {
     0 34px 70px rgba(29, 29, 31, 0.28),
     0 8px 22px rgba(29, 29, 31, 0.14),
     inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  animation: folder-panel-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.folder-overlay.is-closing .folder-panel {
+  animation: folder-panel-out 0.18s ease-in forwards;
 }
 
 .folder-panel-header {
@@ -934,71 +944,6 @@ h1 {
   outline-offset: 5px;
 }
 
-.folder-book-move-button {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow:
-    0 8px 18px rgba(38, 31, 24, 0.16),
-    inset 0 0 0 1px rgba(30, 30, 30, 0.08);
-  color: var(--accent);
-  cursor: pointer;
-  outline: 0;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.folder-book-move-button span {
-  position: relative;
-  width: 16px;
-  height: 16px;
-}
-
-.folder-book-move-button span::before {
-  position: absolute;
-  top: 7px;
-  left: 2px;
-  width: 12px;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
-  content: '';
-}
-
-.folder-book-move-button span::after {
-  position: absolute;
-  top: 4px;
-  left: 1px;
-  width: 8px;
-  height: 8px;
-  border-top: 2px solid currentColor;
-  border-left: 2px solid currentColor;
-  content: '';
-  transform: rotate(-45deg);
-}
-
-.folder-book-move-button:disabled {
-  cursor: wait;
-  opacity: 0.58;
-}
-
-.folder-book-move-button:active:not(:disabled) {
-  transform: scale(0.94);
-}
-
-.folder-book-move-button:focus-visible {
-  outline: 3px solid rgba(0, 122, 255, 0.28);
-  outline-offset: 3px;
-}
-
 .folder-empty-state {
   display: grid;
   flex: 1;
@@ -1205,6 +1150,22 @@ h1 {
   position: absolute;
   inset: 0;
   overflow: hidden;
+}
+
+.reader-cover-clone {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  transition-property: opacity;
+  transition-timing-function: ease;
+}
+
+.reader-fallback-closing {
+  animation: reader-fallback-close 220ms ease-in forwards;
 }
 
 .reader-epub-container {
@@ -1656,4 +1617,47 @@ h1 {
 @keyframes reader-slide-up {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
+}
+
+@keyframes reader-fallback-close {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes folder-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes folder-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes folder-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes folder-panel-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
 }

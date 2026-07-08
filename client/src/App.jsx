@@ -37,6 +37,7 @@ const shelfSortTransition = {
   duration: 460,
   easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
 };
+const FOLDER_CLOSE_ANIM_MS = 180;
 
 function shelfItemKey(item) {
   return `${item.type}:${item.id}`;
@@ -367,11 +368,12 @@ function SortableShelfItem({ disabled, dragIntent, item, onOpenBook, onOpenFolde
     item.type === 'folder'
       ? item.folder?.name || '文件夹'
       : item.book?.title || '未命名书籍';
-  const handleClick = () => {
+  const handleClick = (event) => {
     if (item.type === 'folder') {
       onOpenFolder(item.folder);
     } else if (item.type === 'book') {
-      onOpenBook(item.book);
+      const rect = event.currentTarget.querySelector('.book-cover')?.getBoundingClientRect();
+      onOpenBook(item.book, rect || null);
     }
   };
 
@@ -382,6 +384,7 @@ function SortableShelfItem({ disabled, dragIntent, item, onOpenBook, onOpenFolde
       style={style}
       type="button"
       aria-label={label}
+      data-book-id={item.type === 'book' ? item.book?.id : undefined}
       onClick={handleClick}
       {...attributes}
       {...listeners}
@@ -392,7 +395,7 @@ function SortableShelfItem({ disabled, dragIntent, item, onOpenBook, onOpenFolde
   );
 }
 
-function SortableFolderBook({ book, disabled, isMovingOut, onMoveOut }) {
+function SortableFolderBook({ book, disabled, onOpenBook }) {
   const {
     attributes,
     isDragging,
@@ -430,27 +433,16 @@ function SortableFolderBook({ book, disabled, isMovingOut, onMoveOut }) {
         disabled={disabled}
         type="button"
         aria-label={book.title || '未命名书籍'}
+        onClick={(event) => {
+          const rect = event.currentTarget.querySelector('.book-cover')?.getBoundingClientRect();
+          onOpenBook(book, rect || null);
+        }}
         {...attributes}
         {...listeners}
       >
         <span className="book-cover">
           <BookCover book={book} />
         </span>
-      </button>
-      <button
-        className="folder-book-move-button"
-        disabled={disabled || isMovingOut}
-        type="button"
-        aria-label={`移出《${book.title || '未命名书籍'}》到书架`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onMoveOut(book);
-        }}
-        onPointerDown={(event) => {
-          event.stopPropagation();
-        }}
-      >
-        <span aria-hidden="true" />
       </button>
     </div>
   );
@@ -480,7 +472,11 @@ function ContinueReadingSection({ items, onOpenBook }) {
               className="continue-book-button"
               key={book.id}
               type="button"
-              onClick={() => onOpenBook(book)}
+              data-book-id={book.id}
+              onClick={(event) => {
+                const rect = event.currentTarget.querySelector('.book-cover')?.getBoundingClientRect();
+                onOpenBook(book, rect || null);
+              }}
               aria-label={`继续阅读《${book.title || '未命名书籍'}》`}
             >
               <span className="book-cover continue-book-cover">
@@ -502,13 +498,13 @@ function FolderOverlay({
   books,
   error,
   folder,
+  isClosing,
   isLoading,
   isRenaming,
   isRenameSaving,
-  movingBookId,
   isSavingOrder,
   onClose,
-  onMoveBookToShelf,
+  onOpenBook,
   onRenameCancel,
   onRenameDraftChange,
   onRenameStart,
@@ -520,9 +516,10 @@ function FolderOverlay({
   }
 
   const folderName = folder.name || '文件夹';
+  const overlayClassName = `folder-overlay${isClosing ? ' is-closing' : ''}`;
 
   return (
-    <div className="folder-overlay" role="dialog" aria-modal="true" aria-labelledby="folder-overlay-title">
+    <div className={overlayClassName} role="dialog" aria-modal="true" aria-labelledby="folder-overlay-title">
       <button className="folder-backdrop" type="button" aria-label="关闭文件夹" onClick={onClose} />
       <section className="folder-panel">
         <header className="folder-panel-header">
@@ -576,7 +573,7 @@ function FolderOverlay({
           )}
           <button
             className="folder-close-button"
-            disabled={isRenameSaving || movingBookId !== null}
+            disabled={isRenameSaving}
             type="button"
             aria-label="关闭文件夹"
             onClick={onClose}
@@ -602,10 +599,9 @@ function FolderOverlay({
               {books.map((book) => (
                 <SortableFolderBook
                   book={book}
-                  disabled={isSavingOrder || movingBookId !== null}
-                  isMovingOut={movingBookId === book.id}
+                  disabled={isSavingOrder}
                   key={book.key}
-                  onMoveOut={onMoveBookToShelf}
+                  onOpenBook={onOpenBook}
                 />
               ))}
             </div>
@@ -626,6 +622,7 @@ function App() {
   const dragIntentFrameRef = useRef(null);
   const dragIntentRef = useRef({ type: 'idle', targetKey: null });
   const folderBookShelfDragRef = useRef(null);
+  const folderCloseTimeoutRef = useRef(null);
   const folderSortIntentRef = useRef({ startedAt: 0, targetKey: null });
   const ignoreFolderClickUntilRef = useRef(0);
   const latestPointerPointRef = useRef(null);
@@ -641,16 +638,17 @@ function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [openFolder, setOpenFolder] = useState(null);
+  const [isFolderClosing, setIsFolderClosing] = useState(false);
   const [folderBooks, setFolderBooks] = useState([]);
   const [isFolderLoading, setIsFolderLoading] = useState(false);
   const [isRenamingFolder, setIsRenamingFolder] = useState(false);
   const [isSavingFolderName, setIsSavingFolderName] = useState(false);
   const [isSavingFolderOrder, setIsSavingFolderOrder] = useState(false);
-  const [movingFolderBookId, setMovingFolderBookId] = useState(null);
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [folderError, setFolderError] = useState('');
   const [error, setError] = useState('');
   const [readingBook, setReadingBook] = useState(null);
+  const [readingBookOrigin, setReadingBookOrigin] = useState(null);
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
@@ -897,26 +895,34 @@ function App() {
     }
   }
 
-  function handleOpenBook(book) {
+  function handleOpenBook(book, originRect) {
     if (!book || isSavingOrder) return;
+    setReadingBookOrigin(originRect || null);
     setReadingBook(book);
   }
 
   function handleCloseReader() {
     setReadingBook(null);
+    setReadingBookOrigin(null);
     loadRecentReading();
   }
 
-  async function handleOpenFolder(folder) {    if (!folder || isSavingOrder || performance.now() < ignoreFolderClickUntilRef.current) {
+  async function handleOpenFolder(folder) {
+    if (!folder || isSavingOrder || performance.now() < ignoreFolderClickUntilRef.current) {
       return;
     }
 
+    if (folderCloseTimeoutRef.current) {
+      clearTimeout(folderCloseTimeoutRef.current);
+      folderCloseTimeoutRef.current = null;
+    }
+
+    setIsFolderClosing(false);
     setOpenFolder(folder);
     setFolderBooks([]);
     setFolderError('');
     setFolderNameDraft('');
     setIsRenamingFolder(false);
-    setMovingFolderBookId(null);
     setIsFolderLoading(true);
 
     try {
@@ -929,21 +935,29 @@ function App() {
     }
   }
 
-  function handleCloseFolder() {
-    if (isSavingFolderName || movingFolderBookId !== null) {
-      return;
-    }
-
+  function finishCloseFolder() {
     setOpenFolder(null);
+    setIsFolderClosing(false);
     setFolderBooks([]);
     setFolderError('');
     setIsFolderLoading(false);
     setIsRenamingFolder(false);
     setIsSavingFolderName(false);
     setIsSavingFolderOrder(false);
-    setMovingFolderBookId(null);
     setFolderNameDraft('');
     folderSortIntentRef.current = { startedAt: 0, targetKey: null };
+  }
+
+  function handleCloseFolder() {
+    if (isSavingFolderName || isFolderClosing) {
+      return;
+    }
+
+    setIsFolderClosing(true);
+    folderCloseTimeoutRef.current = setTimeout(() => {
+      folderCloseTimeoutRef.current = null;
+      finishCloseFolder();
+    }, FOLDER_CLOSE_ANIM_MS);
   }
 
   useEffect(() => {
@@ -954,6 +968,10 @@ function App() {
     () => () => {
       if (dragIntentFrameRef.current) {
         cancelAnimationFrame(dragIntentFrameRef.current);
+      }
+
+      if (folderCloseTimeoutRef.current) {
+        clearTimeout(folderCloseTimeoutRef.current);
       }
 
       stopPointerTracking();
@@ -1043,7 +1061,6 @@ function App() {
     setFolderError('');
     setIsFolderLoading(false);
     setIsRenamingFolder(false);
-    setMovingFolderBookId(null);
     clearFolderDragIntent();
     clearDragIntent();
     setFixedDragPreviewPoint(null);
@@ -1108,7 +1125,6 @@ function App() {
     setFolderError('');
     setIsFolderLoading(false);
     setIsRenamingFolder(false);
-    setMovingFolderBookId(null);
     clearFolderDragIntent();
     publishDragIntent({ type: 'sort', targetKey: null });
   }
@@ -1428,33 +1444,6 @@ function App() {
     }
   }
 
-  async function handleMoveFolderBookToShelf(book) {
-    if (!openFolder || !book || isSavingFolderOrder || movingFolderBookId !== null) {
-      return;
-    }
-
-    setMovingFolderBookId(book.id);
-    setFolderError('');
-
-    try {
-      const data = await moveFolderBookToShelf(openFolder.id, book.id);
-
-      setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
-
-      if (!data.folder) {
-        handleCloseFolder();
-        return;
-      }
-
-      setOpenFolder(data.folder);
-      setFolderBooks((data.books || []).map(normalizeFolderBook));
-    } catch (err) {
-      setFolderError(err.message || '无法移出书籍');
-    } finally {
-      setMovingFolderBookId(null);
-    }
-  }
-
   return (
     <DndContext
       modifiers={[activeDragModifier]}
@@ -1545,13 +1534,13 @@ function App() {
         books={folderBooks}
         error={folderError}
         folder={openFolder}
+        isClosing={isFolderClosing}
         isLoading={isFolderLoading}
         isRenaming={isRenamingFolder}
         isRenameSaving={isSavingFolderName}
-        movingBookId={movingFolderBookId}
         isSavingOrder={isSavingFolderOrder}
         onClose={handleCloseFolder}
-        onMoveBookToShelf={handleMoveFolderBookToShelf}
+        onOpenBook={handleOpenBook}
         onRenameCancel={handleCancelFolderRename}
         onRenameDraftChange={setFolderNameDraft}
         onRenameStart={handleStartFolderRename}
@@ -1559,7 +1548,11 @@ function App() {
         renameDraft={folderNameDraft}
       />
       {readingBook && (
-        <ReaderView book={readingBook} onClose={handleCloseReader} />
+        <ReaderView
+          book={readingBook}
+          originRect={readingBookOrigin}
+          onClose={handleCloseReader}
+        />
       )}
       </main>
       <DragOverlay dropAnimation={null}>

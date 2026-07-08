@@ -8,6 +8,13 @@ const SWIPE_THRESHOLD = 45;
 // Page-turn animation
 const PAGE_SLIDE_OUT_MS = 180;
 const PAGE_SLIDE_IN_MS = 180;
+// Open/close FLIP animation: overlay scales between the shelf cover rect and full screen.
+// Same duration/easing both directions to keep open/close symmetric.
+const READER_FLIP_ANIM_MS = 300;
+const READER_FLIP_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const READER_COVER_FADE_MS = 200;
+// Fallback when the origin/target cover rect can't be found (e.g. off-screen).
+const READER_FALLBACK_ANIM_MS = 220;
 const DEFAULT_FONT_SIZE = 100;
 const FONT_SIZE_MIN = 80;
 const FONT_SIZE_MAX = 140;
@@ -147,6 +154,17 @@ function getReaderTheme(themeId) {
     READER_THEME_OPTIONS[0];
 }
 
+// Builds the transform that collapses the full-screen reader overlay down onto
+// a cover's on-screen rect (or the inverse, expanding from it).
+function rectToTransformString(rect) {
+  if (!rect || !rect.width || !rect.height) return null;
+  const vw = window.innerWidth || document.documentElement.clientWidth;
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  if (!vw || !vh) return null;
+
+  return `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / vw}, ${rect.height / vh})`;
+}
+
 function getReaderLayoutCss({ lineHeight, letterSpacing }) {
   return `
     html {
@@ -254,7 +272,7 @@ function applyReaderSettings(rendition, settings) {
   rendition.themes.font(getReaderFontFamily(settings.fontFamilyId));
 }
 
-export function ReaderView({ book, onClose }) {
+export function ReaderView({ book, originRect, onClose }) {
   const containerRef = useRef(null);
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
@@ -263,6 +281,8 @@ export function ReaderView({ book, onClose }) {
   const pointerRef = useRef(null);
   const animatingRef = useRef(false);
   const currentCfiRef = useRef(null);
+  const originRectRef = useRef(originRect);
+  const isClosingRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
@@ -289,6 +309,14 @@ export function ReaderView({ book, onClose }) {
   });
   // Fixed two-stage page slide: old page exits, epub.js turns once, new page enters.
   const [pageTurn, setPageTurn] = useState(null);
+  // Open/close FLIP animation state: the overlay transform collapses onto (or
+  // expands from) the shelf cover rect captured at click time.
+  const [flipTransform, setFlipTransform] = useState(() => (
+    originRect ? rectToTransformString(originRect) : null
+  ));
+  const [flipTransitionEnabled, setFlipTransitionEnabled] = useState(false);
+  const [coverOpacity, setCoverOpacity] = useState(() => (originRect ? 1 : 0));
+  const [isFallbackClosing, setIsFallbackClosing] = useState(false);
 
   const flushSave = useCallback((progressData) => {
     if (!book?.id || !progressData) return;
@@ -444,6 +472,56 @@ export function ReaderView({ book, onClose }) {
     ).catch(() => {});
   }, [horizontalMargin, isLoading, error]);
 
+  // Expand from the shelf cover rect (captured at click time) to full screen.
+  // Skips animating entirely if no origin rect was captured.
+  useEffect(() => {
+    if (!originRectRef.current) return undefined;
+
+    let raf1 = null;
+    let raf2 = null;
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        setFlipTransitionEnabled(true);
+        setFlipTransform(null);
+        setCoverOpacity(0);
+      });
+    });
+
+    const timer = setTimeout(() => {
+      setFlipTransitionEnabled(false);
+    }, READER_FLIP_ANIM_MS);
+
+    return () => {
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const handleCloseClick = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+
+    const targetEl = book?.id
+      ? document.querySelector(`[data-book-id="${book.id}"] .book-cover`)
+      : null;
+    const targetRect = targetEl?.getBoundingClientRect();
+
+    if (targetRect && targetRect.width > 0 && targetRect.height > 0) {
+      setFlipTransitionEnabled(true);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setFlipTransform(rectToTransformString(targetRect));
+          setCoverOpacity(1);
+        });
+      });
+      setTimeout(onClose, READER_FLIP_ANIM_MS);
+    } else {
+      setIsFallbackClosing(true);
+      setTimeout(onClose, READER_FALLBACK_ANIM_MS);
+    }
+  }, [book?.id, onClose]);
+
   const turnPage = useCallback(async (dir) => {
     const rendition = renditionRef.current;
     if (!rendition || animatingRef.current) return;
@@ -537,14 +615,28 @@ export function ReaderView({ book, onClose }) {
     }
   }, [goPrev, goNext]);
 
+  const overlayStyle = {
+    '--reader-bg': readerTheme.background,
+    '--reader-text': readerTheme.text,
+    '--reader-text-secondary': readerTheme.muted,
+  };
+  if (flipTransform) {
+    overlayStyle.transform = flipTransform;
+    overlayStyle.transformOrigin = '0 0';
+  }
+  if (flipTransitionEnabled) {
+    overlayStyle.transition = `transform ${READER_FLIP_ANIM_MS}ms ${READER_FLIP_EASE}`;
+  }
+
   return (
     <div
-      className={`reader-overlay reader-theme-${readerThemeId}${chromeVisible ? '' : ' reader-chrome-hidden'}`}
-      style={{
-        '--reader-bg': readerTheme.background,
-        '--reader-text': readerTheme.text,
-        '--reader-text-secondary': readerTheme.muted,
-      }}
+      className={[
+        'reader-overlay',
+        `reader-theme-${readerThemeId}`,
+        chromeVisible ? '' : 'reader-chrome-hidden',
+        isFallbackClosing ? 'reader-fallback-closing' : '',
+      ].filter(Boolean).join(' ')}
+      style={overlayStyle}
       role="dialog"
       aria-modal="true"
       aria-label={`正在阅读：${book?.title || '书籍'}`}
@@ -554,7 +646,7 @@ export function ReaderView({ book, onClose }) {
           className="reader-close-button"
           type="button"
           aria-label="返回书架"
-          onClick={onClose}
+          onClick={handleCloseClick}
         >
           <span aria-hidden="true" />
         </button>
@@ -563,6 +655,19 @@ export function ReaderView({ book, onClose }) {
           {progress > 0 ? `${Math.round(progress * 100)}%` : ''}
         </span>
       </header>
+
+      {book?.coverUrl && (
+        <img
+          className="reader-cover-clone"
+          src={book.coverUrl}
+          alt=""
+          aria-hidden="true"
+          style={{
+            opacity: coverOpacity,
+            transitionDuration: `${READER_COVER_FADE_MS}ms`,
+          }}
+        />
+      )}
 
       <div className="reader-body">
         {isLoading && (

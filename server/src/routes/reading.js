@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { formatBook } from '../services/bookLibrary.js';
 
 const router = Router();
 
@@ -44,6 +45,44 @@ function formatProgress(row) {
     updatedAt: row.updated_at,
   };
 }
+
+// GET /api/reading/recent
+router.get('/recent', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    const rows = db
+      .prepare(
+        `SELECT b.*,
+                rp.book_id AS progress_book_id,
+                rp.cfi AS progress_cfi,
+                rp.progress AS progress_value,
+                rp.chapter_href AS progress_chapter_href,
+                rp.chapter_label AS progress_chapter_label,
+                rp.updated_at AS progress_updated_at
+         FROM reading_progress rp
+         INNER JOIN books b ON b.id = rp.book_id
+         ORDER BY rp.updated_at DESC, rp.book_id DESC
+         LIMIT 10`,
+      )
+      .all();
+
+    res.json({
+      items: rows.map((row) => ({
+        book: formatBook(row),
+        progress: formatProgress({
+          book_id: row.progress_book_id,
+          cfi: row.progress_cfi,
+          progress: row.progress_value,
+          chapter_href: row.progress_chapter_href,
+          chapter_label: row.progress_chapter_label,
+          updated_at: row.progress_updated_at,
+        }),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /api/reading/:bookId
 router.get('/:bookId', (req, res, next) => {

@@ -19,6 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   createFolderFromBooks,
+  listRecentReading,
   listFolderBooks,
   listShelfItems,
   moveFolderBookToShelf,
@@ -459,6 +460,48 @@ function SortableFolderBook({ book, disabled, isMovingOut, onMoveOut }) {
   );
 }
 
+function ContinueReadingSection({ items, onOpenBook }) {
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <section className="continue-reading" aria-labelledby="continue-reading-title">
+      <div className="continue-reading-header">
+        <h2 id="continue-reading-title">继续阅读</h2>
+      </div>
+      <div className="continue-reading-list">
+        {items.map((item) => {
+          const book = item.book;
+          const progressValue = Number(item.progress?.progress);
+          const hasProgressValue = Number.isFinite(progressValue);
+          const progressPercent = hasProgressValue
+            ? Math.max(0, Math.min(100, Math.round(progressValue * 100)))
+            : null;
+
+          return (
+            <button
+              className="continue-book-button"
+              key={book.id}
+              type="button"
+              onClick={() => onOpenBook(book)}
+              aria-label={`继续阅读《${book.title || '未命名书籍'}》`}
+            >
+              <span className="book-cover continue-book-cover">
+                <BookCover book={book} />
+              </span>
+              <span className="continue-book-title">{book.title || '未命名书籍'}</span>
+              {progressPercent !== null ? (
+                <span className="continue-book-progress">{progressPercent}%</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function FolderOverlay({
   books,
   error,
@@ -593,6 +636,7 @@ function App() {
   const pointerTrackingCleanupRef = useRef(null);
   const sortIntentRef = useRef({ startedAt: 0, targetKey: null });
   const [shelfItems, setShelfItems] = useState([]);
+  const [recentReadingItems, setRecentReadingItems] = useState([]);
   const [activeDragPreview, setActiveDragPreview] = useState(null);
   const [fixedDragPreviewPoint, setFixedDragPreviewPoint] = useState(null);
   const [dragIntent, setDragIntent] = useState({ type: 'idle', targetKey: null });
@@ -828,13 +872,27 @@ function App() {
     [folderCollisionDetection, shelfCollisionDetection],
   );
 
+  async function loadRecentReading() {
+    try {
+      const data = await listRecentReading();
+      setRecentReadingItems(data.items || []);
+    } catch {
+      setRecentReadingItems([]);
+    }
+  }
+
   async function loadShelf() {
     setIsLoading(true);
     setError('');
 
     try {
-      const data = await listShelfItems();
-      setShelfItems((data.items || []).map(normalizeShelfItem));
+      const [shelfData, recentData] = await Promise.all([
+        listShelfItems(),
+        listRecentReading().catch(() => ({ items: [] })),
+      ]);
+
+      setShelfItems((shelfData.items || []).map(normalizeShelfItem));
+      setRecentReadingItems(recentData.items || []);
     } catch (err) {
       setError(err.message || '无法加载书架');
     } finally {
@@ -850,6 +908,7 @@ function App() {
 
   function handleCloseReader() {
     setReadingBook(null);
+    loadRecentReading();
   }
 
   async function handleOpenFolder(folder) {    if (!folder || isSavingOrder || performance.now() < ignoreFolderClickUntilRef.current) {
@@ -1446,6 +1505,13 @@ function App() {
           <p className="status-message" role="status">
             {isUploading ? '正在上传' : isSavingOrder ? '正在保存顺序' : '正在更新书架'}
           </p>
+        ) : null}
+
+        {!isLoading ? (
+          <ContinueReadingSection
+            items={recentReadingItems}
+            onOpenBook={handleOpenBook}
+          />
         ) : null}
 
         {isLoading && !hasLoadedShelf ? (

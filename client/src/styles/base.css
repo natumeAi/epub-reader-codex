@@ -20,6 +20,10 @@
   --accent: #007aff;
   --danger: #c0392b;
   --book-shadow: rgba(38, 31, 24, 0.2);
+  --shelf-wood-background:
+    linear-gradient(90deg, rgba(112, 82, 48, 0.1), rgba(255, 255, 255, 0) 18px, rgba(255, 255, 255, 0) calc(100% - 18px), rgba(112, 82, 48, 0.08)),
+    repeating-linear-gradient(96deg, rgba(120, 88, 52, 0.035) 0 1px, rgba(255, 255, 255, 0) 1px 22px),
+    linear-gradient(180deg, rgba(255, 252, 246, 0.9), rgba(241, 231, 216, 0.82));
 
   color: var(--text-primary);
   background: var(--page-bg);
@@ -44,9 +48,7 @@ body,
 body {
   margin: 0;
   min-width: 320px;
-  background:
-    linear-gradient(180deg, #ffffff 0, rgba(255, 255, 255, 0.82) 118px, rgba(255, 255, 255, 0) 260px),
-    linear-gradient(180deg, var(--page-bg), #efeff4);
+  background: var(--shelf-wood-background);
 }
 
 button,
@@ -180,6 +182,112 @@ h1 {
   color: var(--danger);
 }
 
+.continue-reading {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: -2px 0 0;
+}
+
+.continue-reading-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.continue-reading h2 {
+  margin: 0;
+  color: rgba(29, 29, 31, 0.92);
+  font-size: 22px;
+  font-weight: 780;
+  line-height: 1.08;
+}
+
+.continue-reading-list {
+  display: flex;
+  gap: 15px;
+  margin: 0 -18px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 2px 18px 8px;
+  scroll-padding-inline: 18px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.continue-reading-list::-webkit-scrollbar {
+  display: none;
+}
+
+.continue-book-button {
+  display: grid;
+  width: 86px;
+  flex: 0 0 86px;
+  min-width: 0;
+  align-content: start;
+  grid-template-rows: 138px auto auto;
+  justify-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  outline: 0;
+  scroll-snap-align: start;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.continue-book-button .continue-book-cover {
+  align-self: start;
+  width: 82px;
+  height: 123px;
+  box-shadow:
+    0 16px 25px rgba(38, 31, 24, 0.18),
+    0 3px 7px rgba(38, 31, 24, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.continue-book-button:active .continue-book-cover {
+  transform: translateY(2px) scale(0.985);
+}
+
+.continue-book-button:focus-visible .continue-book-cover {
+  outline: 3px solid rgba(0, 122, 255, 0.28);
+  outline-offset: 5px;
+}
+
+.continue-book-title {
+  position: relative;
+  z-index: 1;
+  display: -webkit-box;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 0;
+  overflow: hidden;
+  color: rgba(29, 29, 31, 0.86);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.32;
+  overflow-wrap: anywhere;
+  text-align: center;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.continue-book-progress {
+  position: relative;
+  z-index: 1;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
 .shelf-grid {
   position: relative;
   display: grid;
@@ -188,30 +296,12 @@ h1 {
   gap: var(--shelf-row-gap) var(--shelf-column-gap);
   align-items: start;
   padding: var(--shelf-panel-pad-y) var(--shelf-panel-pad-x) 34px;
-  background:
-    linear-gradient(90deg, rgba(112, 82, 48, 0.1), rgba(255, 255, 255, 0) 18px, rgba(255, 255, 255, 0) calc(100% - 18px), rgba(112, 82, 48, 0.08)),
-    repeating-linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0) 0,
-      rgba(255, 255, 255, 0) var(--shelf-board-start),
-      rgba(96, 69, 38, 0.1) var(--shelf-board-start),
-      rgba(96, 69, 38, 0.18) var(--shelf-board-top),
-      rgba(246, 233, 210, 0.9) var(--shelf-board-top),
-      rgba(221, 198, 164, 0.9) var(--shelf-board-end),
-      rgba(94, 66, 36, 0.16) var(--shelf-board-end),
-      rgba(38, 31, 24, 0.08) calc(var(--shelf-board-end) + 1px),
-      rgba(38, 31, 24, 0) var(--shelf-board-shadow-end),
-      rgba(255, 255, 255, 0) var(--shelf-board-shadow-end),
-      rgba(255, 255, 255, 0) var(--shelf-row-unit)
-    ),
-    repeating-linear-gradient(96deg, rgba(120, 88, 52, 0.035) 0 1px, rgba(255, 255, 255, 0) 1px 22px),
-    linear-gradient(180deg, rgba(255, 252, 246, 0.9), rgba(241, 231, 216, 0.82));
-  background-position: 0 0, 0 var(--shelf-panel-pad-y), 0 0, 0 0;
-  border-radius: 14px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.68),
-    inset 0 0 0 1px rgba(122, 92, 55, 0.08),
-    0 18px 34px rgba(47, 47, 51, 0.06);
+  background: transparent;
+}
+
+.continue-reading + .shelf-grid {
+  padding-top: 22px;
+  border-top: 1px solid rgba(96, 69, 38, 0.18);
 }
 
 .book-shell {

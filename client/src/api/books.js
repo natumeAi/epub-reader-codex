@@ -153,6 +153,16 @@ export async function getReadingProgress(bookId) {
   return response.json();
 }
 
+export async function listRecentReading() {
+  const response = await fetch('/api/reading/recent');
+
+  if (!response.ok) {
+    throw new Error('无法加载最近阅读');
+  }
+
+  return response.json();
+}
+
 export async function saveReadingProgress(bookId, { cfi, progress, chapterHref, chapterLabel }) {
   const response = await fetch(`/api/reading/${bookId}`, {
     method: 'PUT',

@@ -105,6 +105,12 @@ const READER_THEME_OPTIONS = [
     selection: 'rgba(90, 160, 255, 0.3)',
   },
 ];
+
+function isKeyboardEditingTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('input, textarea, select, button, [contenteditable="true"], [role="slider"]'));
+}
+
 function clampNumber(value, min, max, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
@@ -623,6 +629,27 @@ export function ReaderView({ book, originRect, onClose }) {
 
   const goPrev = useCallback(() => turnPage('prev'), [turnPage]);
   const goNext = useCallback(() => turnPage('next'), [turnPage]);
+
+  useEffect(() => {
+    if (isLoading || error || activePanel) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || isKeyboardEditingTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goPrev();
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goNext();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activePanel, error, goNext, goPrev, isLoading]);
 
   const goToHref = useCallback((href) => {
     if (!href) return;

@@ -420,6 +420,7 @@ function SortableFolderBook({ book, disabled, onOpenBook }) {
   const className = ['folder-book-shell', isDragging ? 'is-dragging' : '']
     .filter(Boolean)
     .join(' ');
+  const label = book.title || '未命名书籍';
 
   return (
     <div
@@ -432,7 +433,7 @@ function SortableFolderBook({ book, disabled, onOpenBook }) {
         className="folder-book-cover-button"
         disabled={disabled}
         type="button"
-        aria-label={book.title || '未命名书籍'}
+        aria-label={label}
         onClick={(event) => {
           const rect = event.currentTarget.querySelector('.book-cover')?.getBoundingClientRect();
           onOpenBook(book, rect || null);
@@ -443,6 +444,7 @@ function SortableFolderBook({ book, disabled, onOpenBook }) {
         <span className="book-cover">
           <BookCover book={book} />
         </span>
+        <span className="shelf-item-label">{label}</span>
       </button>
     </div>
   );

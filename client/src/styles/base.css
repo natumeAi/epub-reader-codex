@@ -1,8 +1,8 @@
 :root {
   --app-max-width: 760px;
-  --book-cover-width: 96px;
-  --book-cover-height: 144px;
-  --shelf-item-height: 184px;
+  --book-cover-width: 120px;
+  --book-cover-height: 180px;
+  --shelf-item-height: 224px;
   --shelf-column-gap: clamp(18px, 4vw, 28px);
   --shelf-row-gap: 28px;
   --shelf-row-unit: calc(var(--shelf-item-height) + var(--shelf-row-gap));
@@ -222,11 +222,11 @@ h1 {
 
 .continue-book-button {
   display: grid;
-  width: 86px;
-  flex: 0 0 86px;
+  width: var(--book-cover-width);
+  flex: 0 0 var(--book-cover-width);
   min-width: 0;
   align-content: start;
-  grid-template-rows: 138px auto auto;
+  grid-template-rows: calc(var(--book-cover-height) + 15px) auto auto;
   justify-items: center;
   padding: 0;
   border: 0;
@@ -241,8 +241,8 @@ h1 {
 
 .continue-book-button .continue-book-cover {
   align-self: start;
-  width: 82px;
-  height: 123px;
+  width: var(--book-cover-width);
+  height: var(--book-cover-height);
   box-shadow:
     0 16px 25px rgba(38, 31, 24, 0.18),
     0 3px 7px rgba(38, 31, 24, 0.12),
@@ -899,13 +899,17 @@ h1 {
 
 .folder-book-shell {
   position: relative;
-  display: block;
+  display: grid;
+  align-content: start;
+  justify-items: center;
   width: var(--book-cover-width);
-  height: var(--book-cover-height);
+  height: var(--shelf-item-height);
 }
 
 .folder-book-cover-button {
   display: grid;
+  align-content: start;
+  justify-items: center;
   width: 100%;
   height: 100%;
   padding: 0;
@@ -1016,9 +1020,9 @@ h1 {
 
 @media (max-width: 374px) {
   :root {
-    --book-cover-width: 92px;
-    --book-cover-height: 138px;
-    --shelf-item-height: 178px;
+    --book-cover-width: 115px;
+    --book-cover-height: 172.5px;
+    --shelf-item-height: 217px;
     --shelf-column-gap: 8px;
   }
 

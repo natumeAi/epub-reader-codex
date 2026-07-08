@@ -43,6 +43,7 @@ try {
 
   const result = await page.evaluate(() => {
     const panel = document.querySelector('.reader-panel-settings');
+    const content = panel.querySelector('.reader-settings-content');
     const panelRect = panel.getBoundingClientRect();
     const labels = [...panel.querySelectorAll('.reader-settings-label')].map((label) =>
       label.textContent.trim(),
@@ -58,11 +59,19 @@ try {
       },
       sliders: panel.querySelectorAll('input[type="range"]').length,
       labels,
-      canScroll: panel.scrollHeight > panel.clientHeight,
+      canScroll: content.scrollHeight > content.clientHeight,
     };
   });
 
-  const requiredLabels = ['字体大小', '字体', '左右边距', '上下边距', '行距', '字距'];
+  const requiredLabels = [
+    '字体大小',
+    '字体',
+    '左右边距',
+    '上下边距',
+    '行距',
+    '字距',
+    '主题',
+  ];
   const missingLabels = requiredLabels.filter((label) => !result.labels.includes(label));
 
   if (result.sliders < 5 || missingLabels.length > 0) {
@@ -71,8 +80,27 @@ try {
     );
   }
 
+  await page.locator('.reader-theme-option').filter({ hasText: '夜间' }).tap();
+
+  const interactionResult = await page.evaluate(() => {
+    const overlay = document.querySelector('.reader-overlay');
+
+    return {
+      darkTheme: overlay?.classList.contains('reader-theme-dark') || false,
+      turnControlsRemoved:
+        !document.body.innerText.includes('翻页方式') &&
+        !document.body.innerText.includes('动画效果'),
+    };
+  });
+
+  if (!interactionResult.darkTheme || !interactionResult.turnControlsRemoved) {
+    throw new Error(
+      `Aa 设置面板外观控件未生效：${JSON.stringify(interactionResult)}`,
+    );
+  }
+
   await page.screenshot({ path: SCREENSHOT_PATH, fullPage: false });
-  console.log(JSON.stringify({ ...result, screenshot: SCREENSHOT_PATH }, null, 2));
+  console.log(JSON.stringify({ ...result, ...interactionResult, screenshot: SCREENSHOT_PATH }, null, 2));
 } finally {
   await browser.close();
 }

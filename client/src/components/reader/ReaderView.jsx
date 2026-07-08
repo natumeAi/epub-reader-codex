@@ -6,10 +6,8 @@ const SAVE_DEBOUNCE_MS = 2000;
 // Horizontal travel (px) past which a pointer gesture counts as a swipe, not a tap
 const SWIPE_THRESHOLD = 45;
 // Page-turn animation
-const TURN_DURATION_MS = 320;
-const prefersReducedMotion = () =>
-  typeof window !== 'undefined' &&
-  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const PAGE_SLIDE_OUT_MS = 180;
+const PAGE_SLIDE_IN_MS = 180;
 const DEFAULT_FONT_SIZE = 100;
 const FONT_SIZE_MIN = 80;
 const FONT_SIZE_MAX = 140;
@@ -31,7 +29,9 @@ const LETTER_SPACING_MIN = 0;
 const LETTER_SPACING_MAX = 0.12;
 const LETTER_SPACING_STEP = 0.02;
 const READER_LAYOUT_STYLE_ID = 'reader-layout-settings';
+const READER_THEME_STYLE_ID = 'reader-theme-settings';
 const DEFAULT_FONT_FAMILY_ID = 'system';
+const DEFAULT_THEME_ID = 'light';
 const FONT_FAMILY_OPTIONS = [
   {
     id: DEFAULT_FONT_FAMILY_ID,
@@ -54,7 +54,44 @@ const FONT_FAMILY_OPTIONS = [
     value: '"Kaiti SC", KaiTi, serif',
   },
 ];
-
+const READER_THEME_OPTIONS = [
+  {
+    id: DEFAULT_THEME_ID,
+    label: '白色',
+    swatch: '#ffffff',
+    text: '#1d1d1f',
+    muted: '#6e6e73',
+    background: '#ffffff',
+    selection: 'rgba(0, 122, 255, 0.22)',
+  },
+  {
+    id: 'warm',
+    label: '暖色',
+    swatch: '#f4ecd9',
+    text: '#2f271d',
+    muted: '#806f5a',
+    background: '#f4ecd9',
+    selection: 'rgba(180, 122, 48, 0.24)',
+  },
+  {
+    id: 'green',
+    label: '护眼',
+    swatch: '#dfeadb',
+    text: '#1f2c22',
+    muted: '#617060',
+    background: '#dfeadb',
+    selection: 'rgba(52, 120, 72, 0.22)',
+  },
+  {
+    id: 'dark',
+    label: '夜间',
+    swatch: '#171717',
+    text: '#eeeeee',
+    muted: '#a6a6a6',
+    background: '#171717',
+    selection: 'rgba(90, 160, 255, 0.3)',
+  },
+];
 function clampNumber(value, min, max, fallback) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
@@ -105,6 +142,11 @@ function getReaderFontFamily(fontFamilyId) {
     FONT_FAMILY_OPTIONS[0].value;
 }
 
+function getReaderTheme(themeId) {
+  return READER_THEME_OPTIONS.find((option) => option.id === themeId) ||
+    READER_THEME_OPTIONS[0];
+}
+
 function getReaderLayoutCss({ lineHeight, letterSpacing }) {
   return `
     html {
@@ -124,6 +166,28 @@ function getReaderLayoutCss({ lineHeight, letterSpacing }) {
   `;
 }
 
+function getReaderThemeCss(theme) {
+  return `
+    html,
+    body {
+      background: ${theme.background} !important;
+      color: ${theme.text} !important;
+    }
+
+    a {
+      color: inherit !important;
+    }
+
+    ::selection {
+      background: ${theme.selection} !important;
+    }
+
+    p, div, section, article, blockquote, li, span {
+      color: ${theme.text} !important;
+    }
+  `;
+}
+
 function applyReaderLayoutStylesToContents(contents, settings) {
   if (!contents) return;
 
@@ -137,6 +201,14 @@ function applyReaderLayoutStylesToContents(contents, settings) {
   contents.css?.('padding-bottom', verticalMargin, true);
   contents.css?.('line-height', lineHeight, true);
   contents.css?.('letter-spacing', letterSpacing, true);
+}
+
+function applyReaderThemeStylesToContents(contents, theme) {
+  if (!contents) return;
+
+  contents.addStylesheetCss?.(getReaderThemeCss(theme), READER_THEME_STYLE_ID);
+  contents.css?.('background', theme.background, true);
+  contents.css?.('color', theme.text, true);
 }
 
 async function applyReaderHorizontalMargin(rendition, horizontalMargin, cfi) {
@@ -154,8 +226,29 @@ async function applyReaderHorizontalMargin(rendition, horizontalMargin, cfi) {
 
 function applyReaderSettings(rendition, settings) {
   if (!rendition?.themes) return;
+  const theme = getReaderTheme(settings.themeId);
+
+  try {
+    rendition.themes.register(settings.themeId, {
+      body: {
+        background: `${theme.background} !important`,
+        color: `${theme.text} !important`,
+      },
+      a: {
+        color: 'inherit !important',
+      },
+      '::selection': {
+        background: `${theme.selection} !important`,
+      },
+    });
+    rendition.themes.select(settings.themeId);
+  } catch {
+    // Content CSS below is the compatibility path for epub.js theme quirks.
+  }
+
   rendition.getContents?.().forEach((contents) => {
     applyReaderLayoutStylesToContents(contents, settings);
+    applyReaderThemeStylesToContents(contents, theme);
   });
   rendition.themes.fontSize(`${settings.fontSize}%`);
   rendition.themes.font(getReaderFontFamily(settings.fontFamilyId));
@@ -184,6 +277,7 @@ export function ReaderView({ book, onClose }) {
   const [verticalMargin, setVerticalMargin] = useState(DEFAULT_VERTICAL_MARGIN);
   const [lineHeight, setLineHeight] = useState(DEFAULT_LINE_HEIGHT);
   const [letterSpacing, setLetterSpacing] = useState(DEFAULT_LETTER_SPACING);
+  const [readerThemeId, setReaderThemeId] = useState(DEFAULT_THEME_ID);
   const readerSettingsRef = useRef({
     fontSize: DEFAULT_FONT_SIZE,
     fontFamilyId: DEFAULT_FONT_FAMILY_ID,
@@ -191,11 +285,10 @@ export function ReaderView({ book, onClose }) {
     verticalMargin: DEFAULT_VERTICAL_MARGIN,
     lineHeight: DEFAULT_LINE_HEIGHT,
     letterSpacing: DEFAULT_LETTER_SPACING,
+    themeId: DEFAULT_THEME_ID,
   });
-  // 'slide' = 平移翻页, 'curl' = CSS 3D 近似卷曲
-  const [turnStyle, setTurnStyle] = useState('curl');
-  // Transient curl overlay: { dir: 'next' | 'prev', key } while a curl turn plays
-  const [curl, setCurl] = useState(null);
+  // Fixed two-stage page slide: old page exits, epub.js turns once, new page enters.
+  const [pageTurn, setPageTurn] = useState(null);
 
   const flushSave = useCallback((progressData) => {
     if (!book?.id || !progressData) return;
@@ -242,6 +335,10 @@ export function ReaderView({ book, onClose }) {
         renditionRef.current = rendition;
         rendition.hooks.content.register((contents) => {
           applyReaderLayoutStylesToContents(contents, readerSettingsRef.current);
+          applyReaderThemeStylesToContents(
+            contents,
+            getReaderTheme(readerSettingsRef.current.themeId),
+          );
         });
         applyReaderSettings(rendition, readerSettingsRef.current);
 
@@ -322,6 +419,7 @@ export function ReaderView({ book, onClose }) {
       verticalMargin,
       lineHeight,
       letterSpacing,
+      themeId: readerThemeId,
     };
     if (isLoading || error) return;
     applyReaderSettings(renditionRef.current, readerSettingsRef.current);
@@ -332,6 +430,7 @@ export function ReaderView({ book, onClose }) {
     verticalMargin,
     lineHeight,
     letterSpacing,
+    readerThemeId,
     isLoading,
     error,
   ]);
@@ -345,59 +444,28 @@ export function ReaderView({ book, onClose }) {
     ).catch(() => {});
   }, [horizontalMargin, isLoading, error]);
 
-  // Tween the epub scroll-strip by one column, then let epub.js's own
-  // next()/prev() sync its location (source of truth for progress).
-  const slideWithin = useCallback((container, dir) => {
-    return new Promise((resolve) => {
-      const col = container.clientWidth;
-      const from = container.scrollLeft;
-      const target = dir === 'next' ? from + col : from - col;
-      // Off the strip (section boundary) → no smooth slide possible
-      if (target < 0 || target > container.scrollWidth - col + 1) {
-        resolve(false);
-        return;
-      }
-      const start = performance.now();
-      const step = (now) => {
-        const t = Math.min(1, (now - start) / TURN_DURATION_MS);
-        const e = 1 - Math.pow(1 - t, 3); // easeOutCubic
-        container.scrollLeft = from + (target - from) * e;
-        if (t < 1) requestAnimationFrame(step);
-        else resolve(true);
-      };
-      requestAnimationFrame(step);
-    });
-  }, []);
-
   const turnPage = useCallback(async (dir) => {
     const rendition = renditionRef.current;
     if (!rendition || animatingRef.current) return;
     const nav = () => (dir === 'next' ? rendition.next() : rendition.prev());
 
-    if (prefersReducedMotion() || turnStyle === 'none') {
-      await nav();
-      return;
-    }
-
     animatingRef.current = true;
     try {
-      const container = containerRef.current?.querySelector('.epub-container');
-      if (turnStyle === 'curl') {
-        // CSS 3D flourish over an instant turn; overlay clears on animationend
-        setCurl({ dir, key: Date.now() });
-        await nav();
-      } else {
-        // slide: animate the strip, then sync epub location
-        const slid = container ? await slideWithin(container, dir) : false;
-        await nav();
-        if (!slid) {
-          /* section boundary — epub already swapped, nothing to unwind */
-        }
-      }
+      setPageTurn({ dir, phase: 'out', key: Date.now() });
+      await new Promise((resolve) => {
+        setTimeout(resolve, PAGE_SLIDE_OUT_MS);
+      });
+      await nav();
+      setPageTurn({ dir, phase: 'in', key: Date.now() });
+      await new Promise((resolve) => {
+        setTimeout(resolve, PAGE_SLIDE_IN_MS);
+      });
+      setPageTurn(null);
     } finally {
+      setPageTurn(null);
       animatingRef.current = false;
     }
-  }, [turnStyle, slideWithin]);
+  }, []);
 
   const goPrev = useCallback(() => turnPage('prev'), [turnPage]);
   const goNext = useCallback(() => turnPage('next'), [turnPage]);
@@ -436,6 +504,8 @@ export function ReaderView({ book, onClose }) {
     setLetterSpacing(clampLetterSpacing(event.target.value));
   }, []);
 
+  const readerTheme = getReaderTheme(readerThemeId);
+
   const handlePointerDown = useCallback((event) => {
     pointerRef.current = { x: event.clientX, y: event.clientY };
   }, []);
@@ -469,7 +539,12 @@ export function ReaderView({ book, onClose }) {
 
   return (
     <div
-      className={`reader-overlay${chromeVisible ? '' : ' reader-chrome-hidden'}`}
+      className={`reader-overlay reader-theme-${readerThemeId}${chromeVisible ? '' : ' reader-chrome-hidden'}`}
+      style={{
+        '--reader-bg': readerTheme.background,
+        '--reader-text': readerTheme.text,
+        '--reader-text-secondary': readerTheme.muted,
+      }}
       role="dialog"
       aria-modal="true"
       aria-label={`正在阅读：${book?.title || '书籍'}`}
@@ -499,19 +574,14 @@ export function ReaderView({ book, onClose }) {
         {error && (
           <p className="reader-error error-message" role="alert">{error}</p>
         )}
-        <div ref={containerRef} className="reader-epub-container" />
-
-        {/* CSS 3D curl flourish: a shaded page-shaped sheet sweeps over the
-            already-swapped content, giving a lightweight page-turn feel
-            without snapshotting the iframe (keeps J3455 CPU load low). */}
-        {curl && (
-          <div
-            key={curl.key}
-            className={`reader-curl reader-curl-${curl.dir}`}
-            aria-hidden="true"
-            onAnimationEnd={() => setCurl(null)}
-          />
-        )}
+        <div
+          ref={containerRef}
+          className={[
+            'reader-epub-container',
+            pageTurn ? `reader-page-slide-${pageTurn.phase}` : '',
+            pageTurn ? `reader-page-slide-${pageTurn.dir}` : '',
+          ].filter(Boolean).join(' ')}
+        />
       </div>
 
       {/* Gesture layer: tap thirds (prev / toggle chrome / next) + horizontal swipe */}
@@ -674,6 +744,38 @@ export function ReaderView({ book, onClose }) {
                 step={LETTER_SPACING_STEP}
                 onChange={handleLetterSpacingChange}
               />
+            </section>
+
+            <section className="reader-settings-group" aria-labelledby="reader-appearance-settings-title">
+              <h3 id="reader-appearance-settings-title" className="reader-settings-group-title">外观</h3>
+              <div className="reader-settings-section" aria-labelledby="reader-theme-title">
+                <div className="reader-settings-row">
+                  <span id="reader-theme-title" className="reader-settings-label">主题</span>
+                  <span className="reader-settings-value">{readerTheme.label}</span>
+                </div>
+                <div className="reader-theme-options" role="group" aria-labelledby="reader-theme-title">
+                  {READER_THEME_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={`reader-theme-option${readerThemeId === option.id ? ' is-active' : ''}`}
+                      onClick={() => setReaderThemeId(option.id)}
+                      aria-pressed={readerThemeId === option.id}
+                    >
+                      <span
+                        className="reader-theme-swatch"
+                        style={{
+                          backgroundColor: option.swatch,
+                          color: option.text,
+                        }}
+                        aria-hidden="true"
+                      />
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
             </section>
           </div>
         </div>

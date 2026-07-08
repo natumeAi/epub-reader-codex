@@ -1,0 +1,15 @@
+.git
+.agents
+.claude
+
+client/node_modules
+client/dist
+client/reader-settings-narrow.png
+
+server/node_modules
+server/public
+server/data
+
+*.log
+.env
+.env.*

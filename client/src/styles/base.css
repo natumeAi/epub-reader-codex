@@ -5,6 +5,13 @@
   --shelf-item-height: 184px;
   --shelf-column-gap: clamp(18px, 4vw, 28px);
   --shelf-row-gap: 28px;
+  --shelf-row-unit: calc(var(--shelf-item-height) + var(--shelf-row-gap));
+  --shelf-panel-pad-y: 10px;
+  --shelf-panel-pad-x: 6px;
+  --shelf-board-start: calc(var(--book-cover-height) - 5px);
+  --shelf-board-top: calc(var(--book-cover-height) - 1px);
+  --shelf-board-end: calc(var(--book-cover-height) + 10px);
+  --shelf-board-shadow-end: calc(var(--book-cover-height) + 34px);
   --page-bg: #f5f5f7;
   --surface: #ffffff;
   --surface-soft: #fbfaf7;
@@ -174,12 +181,37 @@ h1 {
 }
 
 .shelf-grid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(auto-fill, var(--book-cover-width));
   justify-content: space-between;
   gap: var(--shelf-row-gap) var(--shelf-column-gap);
   align-items: start;
-  padding: 2px 2px 30px;
+  padding: var(--shelf-panel-pad-y) var(--shelf-panel-pad-x) 34px;
+  background:
+    linear-gradient(90deg, rgba(112, 82, 48, 0.1), rgba(255, 255, 255, 0) 18px, rgba(255, 255, 255, 0) calc(100% - 18px), rgba(112, 82, 48, 0.08)),
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0) 0,
+      rgba(255, 255, 255, 0) var(--shelf-board-start),
+      rgba(96, 69, 38, 0.1) var(--shelf-board-start),
+      rgba(96, 69, 38, 0.18) var(--shelf-board-top),
+      rgba(246, 233, 210, 0.9) var(--shelf-board-top),
+      rgba(221, 198, 164, 0.9) var(--shelf-board-end),
+      rgba(94, 66, 36, 0.16) var(--shelf-board-end),
+      rgba(38, 31, 24, 0.08) calc(var(--shelf-board-end) + 1px),
+      rgba(38, 31, 24, 0) var(--shelf-board-shadow-end),
+      rgba(255, 255, 255, 0) var(--shelf-board-shadow-end),
+      rgba(255, 255, 255, 0) var(--shelf-row-unit)
+    ),
+    repeating-linear-gradient(96deg, rgba(120, 88, 52, 0.035) 0 1px, rgba(255, 255, 255, 0) 1px 22px),
+    linear-gradient(180deg, rgba(255, 252, 246, 0.9), rgba(241, 231, 216, 0.82));
+  background-position: 0 0, 0 var(--shelf-panel-pad-y), 0 0, 0 0;
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    inset 0 0 0 1px rgba(122, 92, 55, 0.08),
+    0 18px 34px rgba(47, 47, 51, 0.06);
 }
 
 .book-shell {

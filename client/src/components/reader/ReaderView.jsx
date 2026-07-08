@@ -310,7 +310,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
-  const [chromeVisible, setChromeVisible] = useState(true);
+  const [chromeVisible, setChromeVisible] = useState(false);
   // Bottom-bar panel: null | 'toc' | 'settings'
   const [activePanel, setActivePanel] = useState(null);
   const [toc, setToc] = useState([]);

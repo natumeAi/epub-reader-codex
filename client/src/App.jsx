@@ -257,14 +257,23 @@ function DragPreview({ item }) {
     return null;
   }
 
+  const label =
+    item.type === 'folder'
+      ? item.folder?.name || '文件夹'
+      : item.book?.title || '未命名书籍';
+  const isCoverOnly = item.type === 'folder-book';
+
   return (
-    <div className="drag-preview">
-      {item.type === 'folder-book' ? (
+    <div className={isCoverOnly ? 'drag-preview is-cover-only' : 'drag-preview'}>
+      {isCoverOnly ? (
         <span className="book-cover">
           <BookCover book={item.book} />
         </span>
       ) : (
-        <ShelfItemCover item={item} />
+        <>
+          <ShelfItemCover item={item} />
+          <span className="shelf-item-label">{label}</span>
+        </>
       )}
     </div>
   );
@@ -381,6 +390,7 @@ function SortableShelfItem({ disabled, dragIntent, item, onOpenBook, onOpenFolde
       {...listeners}
     >
       <ShelfItemCover item={item} />
+      <span className="shelf-item-label">{label}</span>
     </button>
   );
 }
@@ -1443,6 +1453,7 @@ function App() {
             {Array.from({ length: 6 }).map((_, index) => (
               <div className="book-shell" key={index}>
                 <div className="book-cover skeleton-cover" />
+                <div className="shelf-item-label skeleton-label" />
               </div>
             ))}
           </div>

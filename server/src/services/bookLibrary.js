@@ -316,18 +316,33 @@ export function deleteBookById(db, id) {
   return formatBook(book);
 }
 
+function listEpubFilesRecursive(dir) {
+  const files = [];
+  const entries = readdirSync(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const filePath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(...listEpubFilesRecursive(filePath));
+      continue;
+    }
+
+    if (entry.isFile() && isEpubFileName(entry.name)) {
+      files.push(filePath);
+    }
+  }
+
+  return files;
+}
+
 export async function syncBookDirectory(db) {
   ensureBookDirectory();
 
   const currentBookPaths = new Set();
-  const entries = readdirSync(booksDir, { withFileTypes: true });
+  const filePaths = listEpubFilesRecursive(booksDir);
 
-  for (const entry of entries) {
-    if (!entry.isFile() || !isEpubFileName(entry.name)) {
-      continue;
-    }
-
-    const filePath = path.join(booksDir, entry.name);
+  for (const filePath of filePaths) {
     currentBookPaths.add(toStoredPath(filePath));
     await addBookFileToLibrary(db, filePath);
   }

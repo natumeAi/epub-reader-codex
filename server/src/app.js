@@ -6,6 +6,7 @@ import { checkDatabase } from './db/database.js';
 import booksRouter from './routes/books.js';
 import foldersRouter from './routes/folders.js';
 import readingRouter from './routes/reading.js';
+import readerSettingsRouter from './routes/readerSettings.js';
 import { coversDir, ensureCoverDirectory } from './services/fileStorage.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ export function createApp({ db } = {}) {
   app.use('/api/books', booksRouter);
   app.use('/api/folders', foldersRouter);
   app.use('/api/reading', readingRouter);
+  app.use('/api/reader-settings', readerSettingsRouter);
 
   if (existsSync(clientIndexFile)) {
     app.use(express.static(clientDistDir));

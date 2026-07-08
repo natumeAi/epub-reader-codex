@@ -21,7 +21,6 @@ export function startBookDirectoryWatcher(db) {
       stabilityThreshold: 1000,
       pollInterval: 100,
     },
-    depth: 0,
     ignoreInitial: true,
   });
 

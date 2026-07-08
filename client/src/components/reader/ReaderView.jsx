@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Epub from 'epubjs';
-import { getReadingProgress, saveReadingProgress } from '../../api/books.js';
+import {
+  getReaderSettings,
+  getReadingProgress,
+  saveReaderSettings,
+  saveReadingProgress,
+} from '../../api/books.js';
 
 const SAVE_DEBOUNCE_MS = 2000;
+const SETTINGS_SAVE_DEBOUNCE_MS = 500;
 // Horizontal travel (px) past which a pointer gesture counts as a swipe, not a tap
 const SWIPE_THRESHOLD = 45;
 // Page-turn animation
@@ -154,6 +160,22 @@ function getReaderTheme(themeId) {
     READER_THEME_OPTIONS[0];
 }
 
+function sanitizeReaderSettings(settings) {
+  return {
+    fontSize: clampFontSize(settings?.fontSize),
+    fontFamilyId: FONT_FAMILY_OPTIONS.some((option) => option.id === settings?.fontFamilyId)
+      ? settings.fontFamilyId
+      : DEFAULT_FONT_FAMILY_ID,
+    horizontalMargin: clampHorizontalMargin(settings?.horizontalMargin),
+    verticalMargin: clampVerticalMargin(settings?.verticalMargin),
+    lineHeight: clampLineHeight(settings?.lineHeight),
+    letterSpacing: clampLetterSpacing(settings?.letterSpacing),
+    themeId: READER_THEME_OPTIONS.some((option) => option.id === settings?.themeId)
+      ? settings.themeId
+      : DEFAULT_THEME_ID,
+  };
+}
+
 // Builds the transform that collapses the full-screen reader overlay down onto
 // a cover's on-screen rect (or the inverse, expanding from it).
 function rectToTransformString(rect) {
@@ -277,7 +299,9 @@ export function ReaderView({ book, originRect, onClose }) {
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const saveTimerRef = useRef(null);
+  const settingsSaveTimerRef = useRef(null);
   const pendingProgressRef = useRef(null);
+  const pendingReaderSettingsRef = useRef(null);
   const pointerRef = useRef(null);
   const animatingRef = useRef(false);
   const currentCfiRef = useRef(null);
@@ -298,6 +322,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const [lineHeight, setLineHeight] = useState(DEFAULT_LINE_HEIGHT);
   const [letterSpacing, setLetterSpacing] = useState(DEFAULT_LETTER_SPACING);
   const [readerThemeId, setReaderThemeId] = useState(DEFAULT_THEME_ID);
+  const [hasLoadedReaderSettings, setHasLoadedReaderSettings] = useState(false);
   const readerSettingsRef = useRef({
     fontSize: DEFAULT_FONT_SIZE,
     fontFamilyId: DEFAULT_FONT_FAMILY_ID,
@@ -332,10 +357,25 @@ export function ReaderView({ book, originRect, onClose }) {
     }, SAVE_DEBOUNCE_MS);
   }, [flushSave]);
 
+  const flushReaderSettingsSave = useCallback((settings) => {
+    if (!settings) return;
+    saveReaderSettings(settings).catch(() => {});
+  }, []);
+
+  const scheduleReaderSettingsSave = useCallback((settings) => {
+    pendingReaderSettingsRef.current = settings;
+    if (settingsSaveTimerRef.current) clearTimeout(settingsSaveTimerRef.current);
+    settingsSaveTimerRef.current = setTimeout(() => {
+      flushReaderSettingsSave(pendingReaderSettingsRef.current);
+      pendingReaderSettingsRef.current = null;
+    }, SETTINGS_SAVE_DEBOUNCE_MS);
+  }, [flushReaderSettingsSave]);
+
   useEffect(() => {
     if (!containerRef.current || !book?.id) return;
 
     let destroyed = false;
+    setHasLoadedReaderSettings(false);
 
     // Standard async IIFE pattern for useEffect
     (async () => {
@@ -368,18 +408,35 @@ export function ReaderView({ book, originRect, onClose }) {
             getReaderTheme(readerSettingsRef.current.themeId),
           );
         });
-        applyReaderSettings(rendition, readerSettingsRef.current);
 
         let startCfi;
         try {
-          const data = await getReadingProgress(book.id);
-          startCfi = data.progress?.cfi || undefined;
+          const [progressResult, settingsResult] = await Promise.allSettled([
+            getReadingProgress(book.id),
+            getReaderSettings(),
+          ]);
+          if (progressResult.status === 'fulfilled') {
+            startCfi = progressResult.value.progress?.cfi || undefined;
+          }
+
+          if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
+            const nextSettings = sanitizeReaderSettings(settingsResult.value.settings);
+            readerSettingsRef.current = nextSettings;
+            setFontSize(nextSettings.fontSize);
+            setFontFamilyId(nextSettings.fontFamilyId);
+            setHorizontalMargin(nextSettings.horizontalMargin);
+            setVerticalMargin(nextSettings.verticalMargin);
+            setLineHeight(nextSettings.lineHeight);
+            setLetterSpacing(nextSettings.letterSpacing);
+            setReaderThemeId(nextSettings.themeId);
+          }
         } catch {
           // No saved progress — start from beginning
         }
 
         if (destroyed) return;
 
+        applyReaderSettings(rendition, readerSettingsRef.current);
         await rendition.display(startCfi);
         await applyReaderHorizontalMargin(
           rendition,
@@ -388,6 +445,7 @@ export function ReaderView({ book, originRect, onClose }) {
         );
 
         if (destroyed) return;
+        setHasLoadedReaderSettings(true);
         setIsLoading(false);
 
         // Chapter list for the TOC panel (flattened one level; nested subitems kept)
@@ -429,15 +487,18 @@ export function ReaderView({ book, originRect, onClose }) {
     return () => {
       destroyed = true;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (settingsSaveTimerRef.current) clearTimeout(settingsSaveTimerRef.current);
       flushSave(pendingProgressRef.current);
+      flushReaderSettingsSave(pendingReaderSettingsRef.current);
       pendingProgressRef.current = null;
+      pendingReaderSettingsRef.current = null;
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
       currentCfiRef.current = null;
       bookRef.current = null;
       renditionRef.current = null;
     };
-  }, [book?.id, flushSave, scheduleSave]);
+  }, [book?.id, flushReaderSettingsSave, flushSave, scheduleSave]);
 
   useEffect(() => {
     readerSettingsRef.current = {
@@ -471,6 +532,21 @@ export function ReaderView({ book, originRect, onClose }) {
       currentCfiRef.current,
     ).catch(() => {});
   }, [horizontalMargin, isLoading, error]);
+
+  useEffect(() => {
+    if (!hasLoadedReaderSettings) return;
+    scheduleReaderSettingsSave(readerSettingsRef.current);
+  }, [
+    hasLoadedReaderSettings,
+    fontSize,
+    fontFamilyId,
+    horizontalMargin,
+    verticalMargin,
+    lineHeight,
+    letterSpacing,
+    readerThemeId,
+    scheduleReaderSettingsSave,
+  ]);
 
   // Expand from the shelf cover rect (captured at click time) to full screen.
   // Skips animating entirely if no origin rect was captured.

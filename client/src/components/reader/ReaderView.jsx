@@ -54,9 +54,19 @@ const FONT_FAMILY_OPTIONS = [
     value: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
   },
   {
+    id: 'pingfang',
+    label: '苹方',
+    value: '"PingFang SC", "PingFang TC", "PingFang HK", -apple-system, BlinkMacSystemFont, sans-serif',
+  },
+  {
+    id: 'yahei',
+    label: '微软雅黑',
+    value: '"Microsoft YaHei", "Microsoft JhengHei", "PingFang SC", sans-serif',
+  },
+  {
     id: 'sans',
     label: '黑体',
-    value: '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
+    value: '"Heiti SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif',
   },
   {
     id: 'serif',
@@ -189,8 +199,12 @@ function clampLetterSpacing(value) {
 }
 
 function getReaderFontFamily(fontFamilyId) {
-  return FONT_FAMILY_OPTIONS.find((option) => option.id === fontFamilyId)?.value ||
-    FONT_FAMILY_OPTIONS[0].value;
+  return getReaderFontOption(fontFamilyId).value;
+}
+
+function getReaderFontOption(fontFamilyId) {
+  return FONT_FAMILY_OPTIONS.find((option) => option.id === fontFamilyId) ||
+    FONT_FAMILY_OPTIONS[0];
 }
 
 function getReaderTheme(themeId) {
@@ -365,6 +379,8 @@ export function ReaderView({ book, originRect, onClose }) {
   const [chromeVisible, setChromeVisible] = useState(false);
   // Bottom-bar panel: null | 'toc' | 'settings'
   const [activePanel, setActivePanel] = useState(null);
+  // Settings panel page: 'main' | 'font'
+  const [settingsView, setSettingsView] = useState('main');
   const [toc, setToc] = useState([]);
   const [currentHref, setCurrentHref] = useState(null);
   const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
@@ -618,6 +634,12 @@ export function ReaderView({ book, originRect, onClose }) {
   }, [flushPendingChanges, recoverVisibleReader]);
 
   useEffect(() => {
+    if (activePanel !== 'settings') {
+      setSettingsView('main');
+    }
+  }, [activePanel]);
+
+  useEffect(() => {
     readerSettingsRef.current = {
       fontSize,
       fontFamilyId,
@@ -819,6 +841,7 @@ export function ReaderView({ book, originRect, onClose }) {
   }, []);
 
   const readerTheme = getReaderTheme(readerThemeId);
+  const readerFont = getReaderFontOption(fontFamilyId);
 
   const handlePointerDown = useCallback((event) => {
     pointerRef.current = { x: event.clientX, y: event.clientY };
@@ -958,7 +981,11 @@ export function ReaderView({ book, originRect, onClose }) {
           <button
             type="button"
             className={`reader-bottombar-button${activePanel === 'settings' ? ' is-active' : ''}`}
-            onClick={() => setActivePanel((p) => (p === 'settings' ? null : 'settings'))}
+            onClick={() => setActivePanel((p) => {
+              if (p === 'settings') return null;
+              setSettingsView('main');
+              return 'settings';
+            })}
           >
             <span className="reader-bb-icon reader-bb-icon-aa" aria-hidden="true">Aa</span>
             设置
@@ -990,143 +1017,177 @@ export function ReaderView({ book, originRect, onClose }) {
       {activePanel === 'settings' && (
         <div className="reader-panel reader-panel-settings" role="dialog" aria-label="阅读设置">
           <div className="reader-panel-handle" aria-hidden="true" />
-          <h2 className="reader-panel-title">Aa 设置</h2>
+          {settingsView === 'main' ? (
+            <h2 className="reader-panel-title">Aa 设置</h2>
+          ) : (
+            <div className="reader-panel-subheader">
+              <button
+                type="button"
+                className="reader-panel-back-button"
+                onClick={() => setSettingsView('main')}
+                aria-label="返回 Aa 设置"
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              <h2 className="reader-panel-title reader-panel-subtitle">字体</h2>
+            </div>
+          )}
           <div className="reader-settings-content">
-            <section className="reader-settings-group" aria-labelledby="reader-text-settings-title">
-              <h3 id="reader-text-settings-title" className="reader-settings-group-title">文字</h3>
-              <div className="reader-settings-section" aria-labelledby="reader-font-size-title">
-                <div className="reader-settings-row">
-                  <span id="reader-font-size-title" className="reader-settings-label">字体大小</span>
-                  <span className="reader-settings-value">{fontSize}%</span>
-                </div>
-                <div className="reader-font-size-control">
+            {settingsView === 'main' ? (
+              <>
+                <section className="reader-settings-group" aria-labelledby="reader-text-settings-title">
+                  <h3 id="reader-text-settings-title" className="reader-settings-group-title">文字</h3>
                   <button
                     type="button"
-                    className="reader-font-step"
-                    onClick={decreaseFontSize}
-                    disabled={fontSize <= FONT_SIZE_MIN}
-                    aria-label="减小字体"
+                    className="reader-settings-menu-item"
+                    onClick={() => setSettingsView('font')}
                   >
-                    A
+                    <span className="reader-settings-label">字体</span>
+                    <span className="reader-settings-menu-meta">
+                      <span className="reader-settings-value">{readerFont.label} / {fontSize}%</span>
+                      <span className="reader-settings-chevron" aria-hidden="true">›</span>
+                    </span>
                   </button>
-                  <input
-                    className="reader-setting-slider"
-                    type="range"
-                    min={FONT_SIZE_MIN}
-                    max={FONT_SIZE_MAX}
-                    step={FONT_SIZE_STEP}
-                    value={fontSize}
-                    onChange={handleFontSizeChange}
-                    aria-labelledby="reader-font-size-title"
+                </section>
+
+                <section className="reader-settings-group" aria-labelledby="reader-layout-settings-title">
+                  <h3 id="reader-layout-settings-title" className="reader-settings-group-title">排版</h3>
+                  <ReaderRangeSetting
+                    id="reader-horizontal-margin-title"
+                    label="左右边距"
+                    value={horizontalMargin}
+                    valueLabel={`额外 ${horizontalMargin}px / 实际 ${getEffectiveHorizontalMargin(horizontalMargin)}px`}
+                    min={HORIZONTAL_MARGIN_MIN}
+                    max={HORIZONTAL_MARGIN_MAX}
+                    step={HORIZONTAL_MARGIN_STEP}
+                    onChange={handleHorizontalMarginChange}
                   />
-                  <button
-                    type="button"
-                    className="reader-font-step reader-font-step-large"
-                    onClick={increaseFontSize}
-                    disabled={fontSize >= FONT_SIZE_MAX}
-                    aria-label="增大字体"
-                  >
-                    A
-                  </button>
-                </div>
-              </div>
+                  <ReaderRangeSetting
+                    id="reader-vertical-margin-title"
+                    label="上下边距"
+                    value={verticalMargin}
+                    valueLabel={`额外 ${verticalMargin}px / 实际 ${getEffectiveVerticalMargin(verticalMargin)}px`}
+                    min={VERTICAL_MARGIN_MIN}
+                    max={VERTICAL_MARGIN_MAX}
+                    step={VERTICAL_MARGIN_STEP}
+                    onChange={handleVerticalMarginChange}
+                  />
+                  <ReaderRangeSetting
+                    id="reader-line-height-title"
+                    label="行距"
+                    value={lineHeight}
+                    valueLabel={lineHeight.toFixed(1)}
+                    min={LINE_HEIGHT_MIN}
+                    max={LINE_HEIGHT_MAX}
+                    step={LINE_HEIGHT_STEP}
+                    onChange={handleLineHeightChange}
+                  />
+                  <ReaderRangeSetting
+                    id="reader-letter-spacing-title"
+                    label="字距"
+                    value={letterSpacing}
+                    valueLabel={letterSpacing === 0 ? '默认' : `${letterSpacing.toFixed(2)}em`}
+                    min={LETTER_SPACING_MIN}
+                    max={LETTER_SPACING_MAX}
+                    step={LETTER_SPACING_STEP}
+                    onChange={handleLetterSpacingChange}
+                  />
+                </section>
 
-              <div className="reader-settings-section" aria-labelledby="reader-font-family-title">
-                <div className="reader-settings-row">
-                  <span id="reader-font-family-title" className="reader-settings-label">字体</span>
-                </div>
-                <div className="reader-font-options" role="group" aria-labelledby="reader-font-family-title">
-                  {FONT_FAMILY_OPTIONS.map((option) => (
+                <section className="reader-settings-group" aria-labelledby="reader-appearance-settings-title">
+                  <h3 id="reader-appearance-settings-title" className="reader-settings-group-title">外观</h3>
+                  <div className="reader-settings-section" aria-labelledby="reader-theme-title">
+                    <div className="reader-settings-row">
+                      <span id="reader-theme-title" className="reader-settings-label">主题</span>
+                      <span className="reader-settings-value">{readerTheme.label}</span>
+                    </div>
+                    <div className="reader-theme-options" role="group" aria-labelledby="reader-theme-title">
+                      {READER_THEME_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className={`reader-theme-option${readerThemeId === option.id ? ' is-active' : ''}`}
+                          onClick={() => setReaderThemeId(option.id)}
+                          aria-pressed={readerThemeId === option.id}
+                        >
+                          <span
+                            className="reader-theme-swatch"
+                            style={{
+                              backgroundColor: option.swatch,
+                              color: option.text,
+                            }}
+                            aria-hidden="true"
+                          />
+                          <span>{option.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                </section>
+              </>
+            ) : (
+              <section className="reader-settings-group reader-settings-font-panel" aria-labelledby="reader-font-settings-title">
+                <h3 id="reader-font-settings-title" className="reader-settings-group-title">字体大小</h3>
+                <div className="reader-settings-section" aria-labelledby="reader-font-size-title">
+                  <div className="reader-settings-row">
+                    <span id="reader-font-size-title" className="reader-settings-label">大小</span>
+                    <span className="reader-settings-value">{fontSize}%</span>
+                  </div>
+                  <div className="reader-font-size-control">
                     <button
-                      key={option.id}
                       type="button"
-                      className={`reader-font-option${fontFamilyId === option.id ? ' is-active' : ''}`}
-                      style={{ fontFamily: option.value }}
-                      onClick={() => setFontFamilyId(option.id)}
-                      aria-pressed={fontFamilyId === option.id}
+                      className="reader-font-step"
+                      onClick={decreaseFontSize}
+                      disabled={fontSize <= FONT_SIZE_MIN}
+                      aria-label="减小字体"
                     >
-                      {option.label}
+                      A
                     </button>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="reader-settings-group" aria-labelledby="reader-layout-settings-title">
-              <h3 id="reader-layout-settings-title" className="reader-settings-group-title">排版</h3>
-              <ReaderRangeSetting
-                id="reader-horizontal-margin-title"
-                label="左右边距"
-                value={horizontalMargin}
-                valueLabel={`额外 ${horizontalMargin}px / 实际 ${getEffectiveHorizontalMargin(horizontalMargin)}px`}
-                min={HORIZONTAL_MARGIN_MIN}
-                max={HORIZONTAL_MARGIN_MAX}
-                step={HORIZONTAL_MARGIN_STEP}
-                onChange={handleHorizontalMarginChange}
-              />
-              <ReaderRangeSetting
-                id="reader-vertical-margin-title"
-                label="上下边距"
-                value={verticalMargin}
-                valueLabel={`额外 ${verticalMargin}px / 实际 ${getEffectiveVerticalMargin(verticalMargin)}px`}
-                min={VERTICAL_MARGIN_MIN}
-                max={VERTICAL_MARGIN_MAX}
-                step={VERTICAL_MARGIN_STEP}
-                onChange={handleVerticalMarginChange}
-              />
-              <ReaderRangeSetting
-                id="reader-line-height-title"
-                label="行距"
-                value={lineHeight}
-                valueLabel={lineHeight.toFixed(1)}
-                min={LINE_HEIGHT_MIN}
-                max={LINE_HEIGHT_MAX}
-                step={LINE_HEIGHT_STEP}
-                onChange={handleLineHeightChange}
-              />
-              <ReaderRangeSetting
-                id="reader-letter-spacing-title"
-                label="字距"
-                value={letterSpacing}
-                valueLabel={letterSpacing === 0 ? '默认' : `${letterSpacing.toFixed(2)}em`}
-                min={LETTER_SPACING_MIN}
-                max={LETTER_SPACING_MAX}
-                step={LETTER_SPACING_STEP}
-                onChange={handleLetterSpacingChange}
-              />
-            </section>
-
-            <section className="reader-settings-group" aria-labelledby="reader-appearance-settings-title">
-              <h3 id="reader-appearance-settings-title" className="reader-settings-group-title">外观</h3>
-              <div className="reader-settings-section" aria-labelledby="reader-theme-title">
-                <div className="reader-settings-row">
-                  <span id="reader-theme-title" className="reader-settings-label">主题</span>
-                  <span className="reader-settings-value">{readerTheme.label}</span>
-                </div>
-                <div className="reader-theme-options" role="group" aria-labelledby="reader-theme-title">
-                  {READER_THEME_OPTIONS.map((option) => (
+                    <input
+                      className="reader-setting-slider"
+                      type="range"
+                      min={FONT_SIZE_MIN}
+                      max={FONT_SIZE_MAX}
+                      step={FONT_SIZE_STEP}
+                      value={fontSize}
+                      onChange={handleFontSizeChange}
+                      aria-labelledby="reader-font-size-title"
+                    />
                     <button
-                      key={option.id}
                       type="button"
-                      className={`reader-theme-option${readerThemeId === option.id ? ' is-active' : ''}`}
-                      onClick={() => setReaderThemeId(option.id)}
-                      aria-pressed={readerThemeId === option.id}
+                      className="reader-font-step reader-font-step-large"
+                      onClick={increaseFontSize}
+                      disabled={fontSize >= FONT_SIZE_MAX}
+                      aria-label="增大字体"
                     >
-                      <span
-                        className="reader-theme-swatch"
-                        style={{
-                          backgroundColor: option.swatch,
-                          color: option.text,
-                        }}
-                        aria-hidden="true"
-                      />
-                      <span>{option.label}</span>
+                      A
                     </button>
-                  ))}
+                  </div>
                 </div>
-              </div>
 
-            </section>
+                <div className="reader-settings-section" aria-labelledby="reader-font-family-title">
+                  <div className="reader-settings-row">
+                    <span id="reader-font-family-title" className="reader-settings-label">字体</span>
+                    <span className="reader-settings-value">{readerFont.label}</span>
+                  </div>
+                  <div className="reader-font-options" role="group" aria-labelledby="reader-font-family-title">
+                    {FONT_FAMILY_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={`reader-font-option${fontFamilyId === option.id ? ' is-active' : ''}`}
+                        style={{ fontFamily: option.value }}
+                        onClick={() => setFontFamilyId(option.id)}
+                        aria-pressed={fontFamilyId === option.id}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         </div>
       )}

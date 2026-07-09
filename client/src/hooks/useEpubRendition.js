@@ -69,10 +69,21 @@ export function useEpubRendition({
         rendition.hooks.content.register((contents) => {
           applyReaderSettingsToContents(contents);
         });
-        reapplyReaderSettingsToView = () => {
-          applyReaderSettings(rendition, readerSettingsRef.current);
+        reapplyReaderSettingsToView = (_section, view) => {
+          const applyToRenderedContents = () => {
+            if (destroyed) return;
+            if (view?.contents) {
+              applyReaderSettingsToContents(view.contents, readerSettingsRef.current);
+              return;
+            }
+            rendition.getContents?.().forEach((contents) => {
+              applyReaderSettingsToContents(contents, readerSettingsRef.current);
+            });
+          };
+
+          applyToRenderedContents();
           requestAnimationFrame(() => {
-            if (!destroyed) applyReaderSettings(rendition, readerSettingsRef.current);
+            applyToRenderedContents();
           });
         };
         rendition.on('rendered', reapplyReaderSettingsToView);

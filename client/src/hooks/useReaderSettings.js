@@ -200,17 +200,27 @@ function sanitizeReaderSettings(settings) {
   };
 }
 
-function getReaderLayoutCss({ verticalMargin, lineHeight, letterSpacing }) {
+function getReaderLayoutCss({
+  fontFamilyId,
+  fontSize,
+  verticalMargin,
+  lineHeight,
+  letterSpacing,
+}) {
   const effectiveVerticalMargin = getEffectiveVerticalMargin(verticalMargin);
+  const fontFamily = getReaderFontFamily(fontFamilyId);
 
   return `
     html {
       margin: 0 !important;
       padding: 0 !important;
+      font-family: ${fontFamily} !important;
     }
 
     body {
       box-sizing: border-box !important;
+      font-family: ${fontFamily} !important;
+      font-size: ${fontSize}% !important;
       padding-left: 0 !important;
       padding-right: 0 !important;
       padding-top: ${effectiveVerticalMargin}px !important;
@@ -253,11 +263,15 @@ function applyReaderLayoutStylesToContents(contents, settings) {
 
   contents.addStylesheetCss?.(getReaderLayoutCss(settings), READER_LAYOUT_STYLE_ID);
 
+  const fontSize = `${settings.fontSize}%`;
+  const fontFamily = getReaderFontFamily(settings.fontFamilyId);
   const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
   const lineHeight = String(settings.lineHeight);
   const letterSpacing = `${settings.letterSpacing}em`;
 
   contents.css?.('box-sizing', 'border-box', true);
+  contents.css?.('font-size', fontSize, true);
+  contents.css?.('font-family', fontFamily, true);
   contents.css?.('padding-left', '0px', true);
   contents.css?.('padding-right', '0px', true);
   contents.css?.('padding-top', verticalMargin, true);
@@ -277,6 +291,8 @@ function applyReaderThemeStylesToContents(contents, theme) {
 function applyReaderLayoutStylesToFrames(container, settings) {
   if (!container) return;
 
+  const fontSize = `${settings.fontSize}%`;
+  const fontFamily = getReaderFontFamily(settings.fontFamilyId);
   const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
 
   container.querySelectorAll('iframe').forEach((iframe) => {
@@ -284,6 +300,8 @@ function applyReaderLayoutStylesToFrames(container, settings) {
     if (!body) return;
 
     body.style.setProperty('box-sizing', 'border-box', 'important');
+    body.style.setProperty('font-size', fontSize, 'important');
+    body.style.setProperty('font-family', fontFamily, 'important');
     body.style.setProperty('padding-left', '0px', 'important');
     body.style.setProperty('padding-right', '0px', 'important');
     body.style.setProperty('padding-top', verticalMargin, 'important');

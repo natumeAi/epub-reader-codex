@@ -138,7 +138,6 @@
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
   contain: layout paint;
-  will-change: transform;
 }
 
 .reader-epub-container iframe {
@@ -191,18 +190,22 @@
 
 .reader-page-slide-out.reader-page-slide-next {
   animation: reader-page-slide-out-next 80ms ease-in forwards;
+  will-change: transform;
 }
 
 .reader-page-slide-out.reader-page-slide-prev {
   animation: reader-page-slide-out-prev 80ms ease-in forwards;
+  will-change: transform;
 }
 
 .reader-page-slide-in.reader-page-slide-next {
   animation: reader-page-slide-in-next 80ms ease-out forwards;
+  will-change: transform;
 }
 
 .reader-page-slide-in.reader-page-slide-prev {
   animation: reader-page-slide-in-prev 80ms ease-out forwards;
+  will-change: transform;
 }
 
 .reader-page-turn-sheet {
@@ -254,6 +257,53 @@
 @keyframes reader-page-sheet-in-prev {
   from { transform: translate3d(-100%, 0, 0); }
   to { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes reader-page-sheet-out-next {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-100%, 0, 0); }
+}
+
+@keyframes reader-page-sheet-out-prev {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(100%, 0, 0); }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .reader-epub-container {
+    transform: none;
+    will-change: auto;
+  }
+
+  .reader-page-slide-out.reader-page-slide-next,
+  .reader-page-slide-out.reader-page-slide-prev,
+  .reader-page-slide-in.reader-page-slide-next,
+  .reader-page-slide-in.reader-page-slide-prev {
+    animation: none;
+    transform: none;
+    will-change: auto;
+  }
+
+  .reader-page-turn-sheet {
+    z-index: 2;
+    box-shadow: 0 0 18px rgba(0, 0, 0, 0.08);
+  }
+
+  .reader-page-turn-sheet-out.reader-page-turn-sheet-next {
+    animation: reader-page-sheet-in-next 80ms ease-out forwards;
+  }
+
+  .reader-page-turn-sheet-out.reader-page-turn-sheet-prev {
+    animation: reader-page-sheet-in-prev 80ms ease-out forwards;
+  }
+
+  .reader-page-turn-sheet-in.reader-page-turn-sheet-next {
+    animation: reader-page-sheet-out-next 80ms ease-in forwards;
+  }
+
+  .reader-page-turn-sheet-in.reader-page-turn-sheet-prev {
+    animation: reader-page-sheet-out-prev 80ms ease-in forwards;
+  }
 }
 
 .reader-gesture-layer {
@@ -311,7 +361,7 @@
   position: absolute;
   left: 50%;
   bottom: calc(10px + env(safe-area-inset-bottom));
-  z-index: 2;
+  z-index: 3;
   min-width: 64px;
   padding: 2px 8px;
   transform: translateX(-50%);

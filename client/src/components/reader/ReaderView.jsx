@@ -30,6 +30,52 @@ function wait(ms) {
   });
 }
 
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve);
+    });
+  });
+}
+
+function waitForPageTurnAnimation(elements, fallbackMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const animatedElements = elements.filter(Boolean).filter((element) => {
+      const style = window.getComputedStyle(element);
+      return style.animationName !== 'none' && style.animationDuration !== '0s';
+    });
+
+    if (animatedElements.length === 0) {
+      wait(fallbackMs).then(resolve);
+      return;
+    }
+
+    const cleanups = [];
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanups.forEach((cleanup) => cleanup());
+      resolve();
+    };
+
+    const timer = setTimeout(finish, fallbackMs + 160);
+    cleanups.push(() => clearTimeout(timer));
+
+    animatedElements.forEach((element) => {
+      const handleAnimationDone = (event) => {
+        if (event.target === element) finish();
+      };
+      element.addEventListener('animationend', handleAnimationDone);
+      element.addEventListener('animationcancel', handleAnimationDone);
+      cleanups.push(() => {
+        element.removeEventListener('animationend', handleAnimationDone);
+        element.removeEventListener('animationcancel', handleAnimationDone);
+      });
+    });
+  });
+}
+
 function waitForRelocated(rendition, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false;
@@ -45,6 +91,26 @@ function waitForRelocated(rendition, timeoutMs) {
 
     rendition.on?.('relocated', finish);
     timer = setTimeout(finish, timeoutMs);
+  });
+}
+
+async function getCurrentLocation(rendition) {
+  const location = rendition?.currentLocation?.();
+  if (!location) return null;
+  return typeof location.then === 'function' ? location : Promise.resolve(location);
+}
+
+function isAtPageBoundary(location, dir) {
+  return dir === 'next' ? Boolean(location?.atEnd) : Boolean(location?.atStart);
+}
+
+function schedulePageTurnFollowUp(callback) {
+  requestAnimationFrame(() => {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(callback, { timeout: 500 });
+      return;
+    }
+    setTimeout(callback, 80);
   });
 }
 
@@ -75,6 +141,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const currentCfiRef = useRef(null);
   const originRectRef = useRef(originRect);
   const isClosingRef = useRef(false);
+  const pageTurnSheetRef = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [chromeVisible, setChromeVisible] = useState(false);
@@ -246,22 +313,37 @@ export function ReaderView({ book, originRect, onClose }) {
 
     animatingRef.current = true;
     try {
+      const currentLocation = await getCurrentLocation(rendition).catch(() => null);
+      if (isAtPageBoundary(currentLocation, dir)) return;
+
       setPageTurn({ dir, phase: 'out', key: Date.now() });
-      await wait(PAGE_SLIDE_OUT_MS);
+      await waitForNextPaint();
+      await waitForPageTurnAnimation(
+        [containerRef.current, pageTurnSheetRef.current],
+        PAGE_SLIDE_OUT_MS,
+      );
 
       const relocated = waitForRelocated(rendition, PAGE_NAV_TIMEOUT_MS);
       Promise.resolve(nav()).catch(() => {});
       await relocated;
-      applyReaderSettings(rendition, readerSettingsRef.current);
 
       setPageTurn({ dir, phase: 'in', key: Date.now() });
-      await wait(PAGE_SLIDE_IN_MS);
+      await waitForNextPaint();
+      await waitForPageTurnAnimation(
+        [containerRef.current, pageTurnSheetRef.current],
+        PAGE_SLIDE_IN_MS,
+      );
       setPageTurn(null);
+      schedulePageTurnFollowUp(() => {
+        if (renditionRef.current === rendition && !isClosingRef.current) {
+          applyReaderSettings(rendition, readerSettingsRef.current);
+        }
+      });
     } finally {
       setPageTurn(null);
       animatingRef.current = false;
     }
-  }, [applyReaderSettings, readerSettingsRef]);
+  }, [applyReaderSettings, containerRef, readerSettingsRef, renditionRef]);
 
   const goPrev = useCallback(() => turnPage('prev'), [turnPage]);
   const goNext = useCallback(() => turnPage('next'), [turnPage]);
@@ -354,6 +436,7 @@ export function ReaderView({ book, originRect, onClose }) {
         'reader-overlay',
         `reader-theme-${readerThemeId}`,
         chromeVisible ? '' : 'reader-chrome-hidden',
+        pageTurn ? 'reader-page-turning' : '',
         isFallbackClosing ? 'reader-fallback-closing' : '',
       ].filter(Boolean).join(' ')}
       style={overlayStyle}
@@ -401,6 +484,7 @@ export function ReaderView({ book, originRect, onClose }) {
         />
         {pageTurn && (
           <div
+            ref={pageTurnSheetRef}
             className={[
               'reader-page-turn-sheet',
               `reader-page-turn-sheet-${pageTurn.phase}`,

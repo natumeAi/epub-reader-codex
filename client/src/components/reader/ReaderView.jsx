@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Epub from 'epubjs';
-import {
-  getReadingProgress,
-  saveReadingProgress,
-} from '../../api/readingApi.js';
+import { saveReadingProgress } from '../../api/readingApi.js';
+import { useEpubRendition } from '../../hooks/useEpubRendition.js';
+import { usePageProgress } from '../../hooks/usePageProgress.js';
 import { useReaderSettings } from '../../hooks/useReaderSettings.js';
 import { ReaderBottomBar } from './ReaderBottomBar.jsx';
 import { ReaderSettingsPanel } from './ReaderSettingsPanel.jsx';
@@ -27,28 +25,6 @@ const READER_FALLBACK_ANIM_MS = 220;
 function isKeyboardEditingTarget(target) {
   if (!(target instanceof Element)) return false;
   return Boolean(target.closest('input, textarea, select, button, [contenteditable="true"], [role="slider"]'));
-}
-
-function getPageProgressFromLocation(location) {
-  const displayed = location?.start?.displayed;
-  const current = Number(displayed?.page);
-  const total = Number(displayed?.total);
-
-  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
-    return null;
-  }
-
-  return {
-    current: Math.min(total, Math.max(1, Math.round(current))),
-    total: Math.max(1, Math.round(total)),
-  };
-}
-
-async function getCurrentRenditionLocation(rendition) {
-  const location = rendition?.currentLocation?.();
-  if (!location) return null;
-
-  return typeof location.then === 'function' ? location : Promise.resolve(location);
 }
 
 // Builds the transform that collapses the full-screen reader overlay down onto
@@ -75,16 +51,11 @@ export function ReaderView({ book, originRect, onClose }) {
   const isClosingRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [progress, setProgress] = useState(0);
-  const [pageProgress, setPageProgress] = useState(null);
   const [chromeVisible, setChromeVisible] = useState(false);
   // Bottom-bar panel: null | 'toc' | 'settings'
   const [activePanel, setActivePanel] = useState(null);
   // Settings panel page: 'main' | 'font'
   const [settingsView, setSettingsView] = useState('main');
-  const [toc, setToc] = useState([]);
-  const [currentHref, setCurrentHref] = useState(null);
-  const [readerReloadKey, setReaderReloadKey] = useState(0);
   // Fixed two-stage page slide: old page exits, epub.js turns once, new page enters.
   const [pageTurn, setPageTurn] = useState(null);
   // Open/close FLIP animation state: the overlay transform collapses onto (or
@@ -96,15 +67,12 @@ export function ReaderView({ book, originRect, onClose }) {
   const [coverOpacity, setCoverOpacity] = useState(() => (originRect ? 1 : 0));
   const [isFallbackClosing, setIsFallbackClosing] = useState(false);
 
-  const refreshCurrentPageProgress = useCallback((rendition = renditionRef.current) => (
-    getCurrentRenditionLocation(rendition)
-      .then((location) => {
-        if (renditionRef.current !== rendition) return;
-        const nextPageProgress = getPageProgressFromLocation(location);
-        if (nextPageProgress) setPageProgress(nextPageProgress);
-      })
-      .catch(() => {})
-  ), []);
+  const {
+    pageProgressLabel,
+    refreshCurrentPageProgress,
+    resetPageProgress,
+    updatePageProgressFromLocation,
+  } = usePageProgress({ renditionRef });
 
   const {
     applyReaderHorizontalMargin,
@@ -159,190 +127,33 @@ export function ReaderView({ book, originRect, onClose }) {
     pendingProgressRef.current = null;
   }, [flushPendingReaderSettings, flushSave]);
 
-  useEffect(() => {
-    if (!containerRef.current || !book?.id) return;
-
-    let destroyed = false;
-    setIsLoading(true);
-    setError('');
-    setPageProgress(null);
-    setToc([]);
-    resetReaderSettingsLoad();
-
-    // Standard async IIFE pattern for useEffect
-    (async () => {
-      let epubBook;
-      let rendition;
-
-      try {
-        // Fetch as ArrayBuffer — avoids epub.js trying to resolve
-        // internal EPUB paths relative to the API URL
-        const fileResponse = await fetch(`/api/books/${book.id}/file`);
-        if (!fileResponse.ok) throw new Error(`文件加载失败 (${fileResponse.status})`);
-        if (destroyed) return;
-
-        const arrayBuffer = await fileResponse.arrayBuffer();
-        if (destroyed) return;
-
-        epubBook = Epub(arrayBuffer);
-        bookRef.current = epubBook;
-
-        rendition = epubBook.renderTo(containerRef.current, {
-          width: '100%',
-          height: '100%',
-          spread: 'none',
-        });
-        renditionRef.current = rendition;
-        rendition.hooks.content.register((contents) => {
-          applyReaderSettingsToContents(contents);
-        });
-
-        let startCfi;
-        let loadedReaderSettings = readerSettingsRef.current;
-        try {
-          const [progressResult, settingsResult] = await Promise.allSettled([
-            getReadingProgress(book.id),
-            loadReaderSettings(),
-          ]);
-          if (progressResult.status === 'fulfilled') {
-            startCfi = progressResult.value.progress?.cfi || undefined;
-          }
-
-          if (settingsResult.status === 'fulfilled') {
-            loadedReaderSettings = settingsResult.value;
-          }
-        } catch {
-          // No saved progress — start from beginning
-        }
-
-        if (destroyed) return;
-
-        applyReaderSettings(rendition, loadedReaderSettings);
-        await rendition.display(startCfi);
-        await applyReaderHorizontalMargin(
-          rendition,
-          loadedReaderSettings.horizontalMargin,
-          startCfi,
-        );
-
-        if (destroyed) return;
-        markReaderSettingsLoaded();
-        setIsLoading(false);
-
-        // Chapter list for the TOC panel (flattened one level; nested subitems kept)
-        epubBook.loaded.navigation.then((nav) => {
-          if (!destroyed) setToc(nav?.toc || []);
-        }).catch(() => {});
-
-        // Generate location percentages for progress % display (non-blocking)
-        epubBook.locations.generate(1024).catch(() => {});
-
-        rendition.on('relocated', (location) => {
-          if (destroyed) return;
-          const cfi = location.start.cfi;
-          currentCfiRef.current = cfi;
-          const pct = epubBook.locations.percentageFromCfi(cfi);
-          const progressValue =
-            typeof pct === 'number' && Number.isFinite(pct) ? pct : 0;
-          setProgress(progressValue);
-          setPageProgress(getPageProgressFromLocation(location));
-          setCurrentHref(location.start.href || null);
-          scheduleSave({
-            cfi,
-            progress: progressValue,
-            chapterHref: location.start.href || null,
-            chapterLabel: null,
-          });
-        });
-      } catch {
-        if (!destroyed) {
-          setError('无法打开这本书');
-          setIsLoading(false);
-        }
-        rendition?.destroy();
-        epubBook?.destroy();
-        bookRef.current = null;
-        renditionRef.current = null;
-      }
-    })();
-
-    return () => {
-      destroyed = true;
-      flushPendingChanges();
-      renditionRef.current?.destroy();
-      bookRef.current?.destroy();
-      currentCfiRef.current = null;
-      bookRef.current = null;
-      renditionRef.current = null;
-    };
-  }, [
+  const {
+    currentHref,
+    progress,
+    toc,
+  } = useEpubRendition({
     applyReaderHorizontalMargin,
     applyReaderSettings,
     applyReaderSettingsToContents,
-    book?.id,
+    book,
+    bookRef,
+    containerRef,
+    currentCfiRef,
+    error,
     flushPendingChanges,
+    isClosingRef,
+    isLoading,
     loadReaderSettings,
     markReaderSettingsLoaded,
-    readerReloadKey,
     readerSettingsRef,
+    renditionRef,
+    resetPageProgress,
     resetReaderSettingsLoad,
     scheduleSave,
-  ]);
-
-  const recoverVisibleReader = useCallback(() => {
-    if (!book?.id || isClosingRef.current || isLoading || error) return;
-
-    requestAnimationFrame(() => {
-      const container = containerRef.current;
-      const rendition = renditionRef.current;
-
-      if (!container) {
-        return;
-      }
-
-      const hasRenderedFrame = Boolean(container.querySelector('iframe'));
-
-      if (!rendition || !hasRenderedFrame) {
-        setError('');
-        setIsLoading(true);
-        resetReaderSettingsLoad();
-        setReaderReloadKey((key) => key + 1);
-        return;
-      }
-
-      rendition.resize?.();
-
-      if (currentCfiRef.current) {
-        rendition.display(currentCfiRef.current).catch(() => {});
-      }
-    });
-  }, [book?.id, error, isLoading, resetReaderSettingsLoad]);
-
-  useEffect(() => {
-    const handlePageHide = () => {
-      flushPendingChanges();
-    };
-    const handlePageShow = () => {
-      recoverVisibleReader();
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        recoverVisibleReader();
-      } else {
-        flushPendingChanges();
-      }
-    };
-
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('pageshow', handlePageShow);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('pageshow', handlePageShow);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [flushPendingChanges, recoverVisibleReader]);
+    setError,
+    setIsLoading,
+    updatePageProgressFromLocation,
+  });
 
   useEffect(() => {
     if (activePanel !== 'settings') {
@@ -497,10 +308,6 @@ export function ReaderView({ book, originRect, onClose }) {
   if (flipTransitionEnabled) {
     overlayStyle.transition = `transform ${READER_FLIP_ANIM_MS}ms ${READER_FLIP_EASE}`;
   }
-  const pageProgressLabel = pageProgress
-    ? `${pageProgress.current}/${pageProgress.total}`
-    : '--/--';
-
   const handleToggleTocPanel = () => {
     setActivePanel((panel) => (panel === 'toc' ? null : 'toc'));
   };

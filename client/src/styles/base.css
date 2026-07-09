@@ -1,5 +1,7 @@
 :root {
   --app-max-width: 760px;
+  --app-pad-top: max(22px, env(safe-area-inset-top));
+  --app-pad-bottom: max(28px, env(safe-area-inset-bottom));
   --book-cover-width: 110px;
   --book-cover-height: 165px;
   --shelf-item-height: 209px;
@@ -66,13 +68,12 @@ button {
   width: min(100%, var(--app-max-width));
   min-height: 100svh;
   margin: 0 auto;
-  padding: max(22px, env(safe-area-inset-top)) 18px
-    max(28px, env(safe-area-inset-bottom));
+  padding: var(--app-pad-top) 18px var(--app-pad-bottom);
 }
 
 .library-home {
   display: flex;
-  min-height: calc(100svh - 42px);
+  min-height: calc(100svh - var(--app-pad-top) - var(--app-pad-bottom));
   flex-direction: column;
   gap: 24px;
 }

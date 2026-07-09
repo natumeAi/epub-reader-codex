@@ -1,11 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
 } from '@dnd-kit/core';
-import {
-  deleteBook,
-} from './api/books.js';
 import { DeleteConfirmDialog } from './components/bookshelf/DeleteConfirmDialog.jsx';
 import { DeleteDropZone } from './components/bookshelf/DeleteDropZone.jsx';
 import { DragPreview } from './components/bookshelf/DragPreview.jsx';
@@ -13,6 +10,7 @@ import { FixedDragPreview } from './components/bookshelf/FixedDragPreview.jsx';
 import { LibraryHome } from './components/bookshelf/LibraryHome.jsx';
 import { FolderOverlay } from './components/folders/FolderOverlay.jsx';
 import { ReaderView } from './components/reader/ReaderView.jsx';
+import { useBookDeletion } from './hooks/useBookDeletion.js';
 import { useFolderState } from './hooks/useFolderState.js';
 import { useLibraryDrag } from './hooks/useLibraryDrag.js';
 import { useReaderSession } from './hooks/useReaderSession.js';
@@ -20,8 +18,6 @@ import { useShelfData } from './hooks/useShelfData.js';
 
 function App() {
   const fileInputRef = useRef(null);
-  const [deleteCandidateBook, setDeleteCandidateBook] = useState(null);
-  const [isDeletingBook, setIsDeletingBook] = useState(false);
   const {
     clearReaderBookIfDeleted,
     closeReader,
@@ -74,14 +70,20 @@ function App() {
   } = useFolderState({
     onFolderRenamed: replaceShelfFolder,
   });
-  const handleDropBookOnDelete = useCallback(
-    (book) => {
-      setError('');
-      setFolderError('');
-      setDeleteCandidateBook(book);
-    },
-    [setError, setFolderError],
-  );
+  const {
+    deleteCandidateBook,
+    handleCancelDeleteBook,
+    handleConfirmDeleteBook,
+    handleDropBookOnDelete,
+    isDeletingBook,
+  } = useBookDeletion({
+    clearReaderBookIfDeleted,
+    loadShelf,
+    openFolder,
+    refreshOpenFolderBooksOrClose,
+    setError,
+    setFolderError,
+  });
   const {
     activeDragModifier,
     activeDragPreview,
@@ -127,50 +129,6 @@ function App() {
       ignoreUntil: getFolderOpenIgnoreUntil(),
       isShelfBusy: isSavingOrder,
     });
-  }
-
-  function handleCancelDeleteBook() {
-    if (isDeletingBook) {
-      return;
-    }
-
-    setDeleteCandidateBook(null);
-  }
-
-  async function handleConfirmDeleteBook() {
-    const book = deleteCandidateBook;
-
-    if (!book || isDeletingBook) {
-      return;
-    }
-
-    setIsDeletingBook(true);
-    setError('');
-    setFolderError('');
-
-    try {
-      await deleteBook(book.id);
-
-      clearReaderBookIfDeleted(book.id);
-
-      setDeleteCandidateBook(null);
-
-      if (openFolder) {
-        await refreshOpenFolderBooksOrClose();
-      }
-
-      await loadShelf();
-    } catch (err) {
-      const message = err.message || '无法删除书籍';
-
-      if (openFolder) {
-        setFolderError(message);
-      } else {
-        setError(message);
-      }
-    } finally {
-      setIsDeletingBook(false);
-    }
   }
 
   return (

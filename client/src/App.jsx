@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  closestCenter,
   DndContext,
   DragOverlay,
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
+  useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
@@ -19,6 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   createFolderFromBooks,
+  deleteBook,
   getBook,
   listRecentReading,
   listFolderBooks,
@@ -39,6 +40,7 @@ const shelfSortTransition = {
   easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
 };
 const FOLDER_CLOSE_ANIM_MS = 180;
+const DELETE_DROPZONE_ID = 'book-delete-dropzone';
 const activeReaderBookStorageKey = 'epub-reader.activeBookId';
 
 function readActiveReaderBookId() {
@@ -134,6 +136,15 @@ function centerRect(rect) {
     right: rect.right - xInset,
     top: rect.top + yInset,
     bottom: rect.bottom - yInset,
+  };
+}
+
+function expandRect(rect, amount) {
+  return {
+    left: rect.left - amount,
+    right: rect.right + amount,
+    top: rect.top - amount,
+    bottom: rect.bottom + amount,
   };
 }
 
@@ -334,6 +345,63 @@ function FixedDragPreview({ item, point }) {
       }}
     >
       <DragPreview item={item} />
+    </div>
+  );
+}
+
+function DeleteDropZone({ visible }) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: DELETE_DROPZONE_ID,
+    data: {
+      type: 'delete-zone',
+    },
+    disabled: !visible,
+  });
+
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`delete-drop-zone${isOver ? ' is-over' : ''}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="delete-drop-zone-icon" aria-hidden="true" />
+      <span>删除</span>
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({ book, isDeleting, onCancel, onConfirm }) {
+  if (!book) {
+    return null;
+  }
+
+  const title = book.title || '这本书';
+
+  return (
+    <div className="delete-confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title">
+      <div className="delete-confirm-backdrop" />
+      <section className="delete-confirm-panel">
+        <h2 id="delete-confirm-title">删除《{title}》？</h2>
+        <p>这会从书架和服务器中移除 EPUB 文件。</p>
+        <div className="delete-confirm-actions">
+          <button type="button" onClick={onCancel} disabled={isDeleting}>
+            取消
+          </button>
+          <button
+            className="is-danger"
+            type="button"
+            onClick={onConfirm}
+            disabled={isDeleting}
+          >
+            {isDeleting ? '正在删除' : '删除'}
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -693,6 +761,8 @@ function App() {
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [folderError, setFolderError] = useState('');
   const [error, setError] = useState('');
+  const [deleteCandidateBook, setDeleteCandidateBook] = useState(null);
+  const [isDeletingBook, setIsDeletingBook] = useState(false);
   const [readingBook, setReadingBook] = useState(null);
   const [readingBookOrigin, setReadingBookOrigin] = useState(null);
   const sensors = useSensors(
@@ -738,6 +808,7 @@ function App() {
         x: collisionRect.left + collisionRect.width / 2,
         y: collisionRect.top + collisionRect.height / 2,
       };
+      const deletePoint = latestPointerPointRef.current || activeCenter;
       let lockedTarget = null;
 
       for (const droppableContainer of droppableContainers) {
@@ -748,8 +819,23 @@ function App() {
         }
 
         const rect = droppableRects.get(droppableContainer.id);
+        const targetType = droppableContainer.data.current?.type;
 
-        if (!rect || !pointInRect(activeCenter, rect)) {
+        if (!rect) {
+          continue;
+        }
+
+        if (
+          targetType === 'delete-zone' &&
+          (activeType === 'book' || activeType === 'folder-book') &&
+          (pointInRect(deletePoint, expandRect(rect, 24)) ||
+            pointInRect(activeCenter, expandRect(rect, 54)))
+        ) {
+          publishDragIntent({ type: 'delete', targetKey: null });
+          return collisionForKey(DELETE_DROPZONE_ID, droppableContainers);
+        }
+
+        if (targetType === 'delete-zone' || !pointInRect(activeCenter, rect)) {
           continue;
         }
 
@@ -760,7 +846,7 @@ function App() {
             distance,
             key: targetKey,
             rect,
-            type: droppableContainer.data.current?.type,
+            type: targetType,
           };
         }
       }
@@ -820,7 +906,13 @@ function App() {
       }
 
       publishDragIntent({ type: 'sort', targetKey: null });
-      const sortCollisions = closestCenter(args);
+      const shelfElement = document.querySelector('.shelf-grid');
+
+      if (shelfElement && !pointInRect(activeCenter, shelfElement.getBoundingClientRect())) {
+        sortIntentRef.current = { startedAt: 0, targetKey: null };
+        return activeCollision(active.id, droppableContainers);
+      }
+
       const sortTargetKey = sortTargetKeyFromPoint({
         activeKey: String(active.id),
         point: activeCenter,
@@ -855,10 +947,27 @@ function App() {
   const folderCollisionDetection = useCallback(
     (args) => {
       const { active, collisionRect, droppableContainers, droppableRects } = args;
+      const activeType = active.data.current?.type;
       const activeCenter = {
         x: collisionRect.left + collisionRect.width / 2,
         y: collisionRect.top + collisionRect.height / 2,
       };
+      const deletePoint = latestPointerPointRef.current || activeCenter;
+
+      for (const droppableContainer of droppableContainers) {
+        const rect = droppableRects.get(droppableContainer.id);
+
+        if (
+          rect &&
+          (pointInRect(deletePoint, expandRect(rect, 24)) ||
+            pointInRect(activeCenter, expandRect(rect, 54))) &&
+          droppableContainer.data.current?.type === 'delete-zone' &&
+          activeType === 'folder-book'
+        ) {
+          return collisionForKey(DELETE_DROPZONE_ID, droppableContainers);
+        }
+      }
+
       const sortTargetKey = sortTargetKeyFromPoint({
         activeKey: String(active.id),
         point: activeCenter,
@@ -893,7 +1002,7 @@ function App() {
   const activeDragModifier = useCallback((args) => {
     const activeType = args.active?.data.current?.type;
 
-    if (activeType === 'folder-book') {
+    if (activeType === 'book' || activeType === 'folder-book') {
       return args.transform;
     }
 
@@ -974,6 +1083,104 @@ function App() {
     setReadingBook(null);
     setReadingBookOrigin(null);
     loadRecentReading();
+  }
+
+  function bookFromDragData(data) {
+    if (data?.type === 'book') {
+      return data.item?.book || null;
+    }
+
+    if (data?.type === 'folder-book') {
+      return data.book || null;
+    }
+
+    return null;
+  }
+
+  function handleDropOnDelete(event) {
+    const activeData = event.active.data.current;
+    let book = null;
+
+    if (folderBookShelfDragRef.current) {
+      book = folderBookShelfDragRef.current.book;
+      restoreFolderBookShelfDrag();
+    } else {
+      book = bookFromDragData(activeData);
+
+      if (activeData?.type === 'folder-book') {
+        clearFolderDragIntent();
+      } else {
+        clearDragIntent();
+      }
+    }
+
+    if (!book) {
+      return false;
+    }
+
+    setError('');
+    setFolderError('');
+    setDeleteCandidateBook(book);
+    return true;
+  }
+
+  function handleCancelDeleteBook() {
+    if (isDeletingBook) {
+      return;
+    }
+
+    setDeleteCandidateBook(null);
+  }
+
+  async function handleConfirmDeleteBook() {
+    const book = deleteCandidateBook;
+
+    if (!book || isDeletingBook) {
+      return;
+    }
+
+    setIsDeletingBook(true);
+    setError('');
+    setFolderError('');
+
+    try {
+      await deleteBook(book.id);
+
+      if (readingBook?.id === book.id || readActiveReaderBookId() === book.id) {
+        clearActiveReaderBookId();
+        setReadingBook(null);
+        setReadingBookOrigin(null);
+      }
+
+      setDeleteCandidateBook(null);
+
+      if (openFolder) {
+        try {
+          const data = await listFolderBooks(openFolder.id);
+          const nextFolderBooks = (data.books || []).map(normalizeFolderBook);
+
+          if (nextFolderBooks.length) {
+            setFolderBooks(nextFolderBooks);
+          } else {
+            finishCloseFolder();
+          }
+        } catch {
+          finishCloseFolder();
+        }
+      }
+
+      await loadShelf();
+    } catch (err) {
+      const message = err.message || '无法删除书籍';
+
+      if (openFolder) {
+        setFolderError(message);
+      } else {
+        setError(message);
+      }
+    } finally {
+      setIsDeletingBook(false);
+    }
   }
 
   async function handleOpenFolder(folder) {
@@ -1372,6 +1579,10 @@ function App() {
     setFixedDragPreviewPoint(null);
     stopPointerTracking();
 
+    if (event.over?.id === DELETE_DROPZONE_ID && handleDropOnDelete(event)) {
+      return;
+    }
+
     if (folderBookShelfDragRef.current) {
       await handleFolderBookShelfDragEnd(event);
       return;
@@ -1623,6 +1834,15 @@ function App() {
           onClose={handleCloseReader}
         />
       )}
+      <DeleteDropZone
+        visible={activeDragPreview?.type === 'book' || activeDragPreview?.type === 'folder-book'}
+      />
+      <DeleteConfirmDialog
+        book={deleteCandidateBook}
+        isDeleting={isDeletingBook}
+        onCancel={handleCancelDeleteBook}
+        onConfirm={handleConfirmDeleteBook}
+      />
       </main>
       <DragOverlay dropAnimation={null}>
         <DragPreview item={fixedDragPreviewPoint ? null : activeDragPreview} />

@@ -44,6 +44,18 @@ export async function uploadBook(file) {
   return response.json();
 }
 
+export async function deleteBook(bookId) {
+  const response = await fetch(`/api/books/${bookId}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    throw new Error(response.status === 404 ? '书籍不存在' : '无法删除书籍');
+  }
+
+  return response.json();
+}
+
 export async function createFolderFromBooks(sourceBookId, targetBookId) {
   const response = await fetch('/api/folders', {
     method: 'POST',

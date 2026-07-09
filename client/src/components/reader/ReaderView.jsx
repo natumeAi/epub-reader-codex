@@ -25,12 +25,14 @@ const DEFAULT_FONT_SIZE = 100;
 const FONT_SIZE_MIN = 80;
 const FONT_SIZE_MAX = 140;
 const FONT_SIZE_STEP = 10;
-const DEFAULT_HORIZONTAL_MARGIN = 24;
-const HORIZONTAL_MARGIN_MIN = 12;
+const BASE_HORIZONTAL_MARGIN = 48;
+const DEFAULT_HORIZONTAL_MARGIN = 0;
+const HORIZONTAL_MARGIN_MIN = 0;
 const HORIZONTAL_MARGIN_MAX = 48;
 const HORIZONTAL_MARGIN_STEP = 6;
-const DEFAULT_VERTICAL_MARGIN = 20;
-const VERTICAL_MARGIN_MIN = 12;
+const BASE_VERTICAL_MARGIN = 60;
+const DEFAULT_VERTICAL_MARGIN = 0;
+const VERTICAL_MARGIN_MIN = 0;
 const VERTICAL_MARGIN_MAX = 48;
 const VERTICAL_MARGIN_STEP = 6;
 const DEFAULT_LINE_HEIGHT = 1.6;
@@ -139,6 +141,14 @@ function clampVerticalMargin(value) {
   );
 }
 
+function getEffectiveHorizontalMargin(horizontalMargin) {
+  return BASE_HORIZONTAL_MARGIN + clampHorizontalMargin(horizontalMargin);
+}
+
+function getEffectiveVerticalMargin(verticalMargin) {
+  return BASE_VERTICAL_MARGIN + clampVerticalMargin(verticalMargin);
+}
+
 function clampLineHeight(value) {
   return Number(
     clampNumber(value, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX, DEFAULT_LINE_HEIGHT).toFixed(1),
@@ -194,6 +204,8 @@ function rectToTransformString(rect) {
 }
 
 function getReaderLayoutCss({ verticalMargin, lineHeight, letterSpacing }) {
+  const effectiveVerticalMargin = getEffectiveVerticalMargin(verticalMargin);
+
   return `
     html {
       margin: 0 !important;
@@ -201,8 +213,8 @@ function getReaderLayoutCss({ verticalMargin, lineHeight, letterSpacing }) {
     }
 
     body {
-      padding-top: ${verticalMargin}px !important;
-      padding-bottom: ${verticalMargin}px !important;
+      padding-top: ${effectiveVerticalMargin}px !important;
+      padding-bottom: ${effectiveVerticalMargin}px !important;
       line-height: ${lineHeight} !important;
       letter-spacing: ${letterSpacing}em !important;
     }
@@ -241,7 +253,7 @@ function applyReaderLayoutStylesToContents(contents, settings) {
 
   contents.addStylesheetCss?.(getReaderLayoutCss(settings), READER_LAYOUT_STYLE_ID);
 
-  const verticalMargin = `${settings.verticalMargin}px`;
+  const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
   const lineHeight = String(settings.lineHeight);
   const letterSpacing = `${settings.letterSpacing}em`;
 
@@ -264,7 +276,7 @@ async function applyReaderHorizontalMargin(rendition, horizontalMargin, cfi) {
   const layout = rendition?._layout;
   if (!manager || !layout) return;
 
-  manager.settings.gap = horizontalMargin * 2;
+  manager.settings.gap = getEffectiveHorizontalMargin(horizontalMargin) * 2;
   manager.updateLayout?.();
 
   if (cfi) {
@@ -275,7 +287,7 @@ async function applyReaderHorizontalMargin(rendition, horizontalMargin, cfi) {
 function applyReaderSettings(rendition, settings) {
   if (!rendition?.themes) return;
   const theme = getReaderTheme(settings.themeId);
-  const verticalMargin = `${settings.verticalMargin}px`;
+  const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
   const lineHeight = String(settings.lineHeight);
   const letterSpacing = `${settings.letterSpacing}em`;
 
@@ -991,7 +1003,7 @@ export function ReaderView({ book, originRect, onClose }) {
                 id="reader-horizontal-margin-title"
                 label="左右边距"
                 value={horizontalMargin}
-                valueLabel={`每侧 ${horizontalMargin}px`}
+                valueLabel={`额外 ${horizontalMargin}px / 实际 ${getEffectiveHorizontalMargin(horizontalMargin)}px`}
                 min={HORIZONTAL_MARGIN_MIN}
                 max={HORIZONTAL_MARGIN_MAX}
                 step={HORIZONTAL_MARGIN_STEP}
@@ -1001,7 +1013,7 @@ export function ReaderView({ book, originRect, onClose }) {
                 id="reader-vertical-margin-title"
                 label="上下边距"
                 value={verticalMargin}
-                valueLabel={`${verticalMargin}px`}
+                valueLabel={`额外 ${verticalMargin}px / 实际 ${getEffectiveVerticalMargin(verticalMargin)}px`}
                 min={VERTICAL_MARGIN_MIN}
                 max={VERTICAL_MARGIN_MAX}
                 step={VERTICAL_MARGIN_STEP}

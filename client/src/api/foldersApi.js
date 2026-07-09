@@ -1,56 +1,8 @@
-export async function listBooks() {
-  const response = await fetch('/api/books');
-
-  if (!response.ok) {
-    throw new Error('无法加载书架');
-  }
-
-  return response.json();
-}
-
-export async function getBook(bookId) {
-  const response = await fetch(`/api/books/${bookId}`);
-
-  if (!response.ok) {
-    throw new Error(response.status === 404 ? '书籍不存在' : '无法加载书籍');
-  }
-
-  return response.json();
-}
-
 export async function listShelfItems() {
   const response = await fetch('/api/folders/shelf');
 
   if (!response.ok) {
     throw new Error('无法加载书架');
-  }
-
-  return response.json();
-}
-
-export async function uploadBook(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch('/api/books', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error('上传失败');
-  }
-
-  return response.json();
-}
-
-export async function deleteBook(bookId) {
-  const response = await fetch(`/api/books/${bookId}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok) {
-    throw new Error(response.status === 404 ? '书籍不存在' : '无法删除书籍');
   }
 
   return response.json();
@@ -133,22 +85,6 @@ export async function moveFolderBookToShelf(folderId, bookId, items) {
   return response.json();
 }
 
-export async function updateBookOrder(bookIds) {
-  const response = await fetch('/api/books/order', {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ bookIds }),
-  });
-
-  if (!response.ok) {
-    throw new Error(response.status === 409 ? '书架已变化，请刷新后重试' : '无法保存书架顺序');
-  }
-
-  return response.json();
-}
-
 export async function updateShelfItemOrder(items) {
   const response = await fetch('/api/folders/shelf/order', {
     method: 'PATCH',
@@ -160,64 +96,6 @@ export async function updateShelfItemOrder(items) {
 
   if (!response.ok) {
     throw new Error(response.status === 409 ? '书架已变化，请刷新后重试' : '无法保存书架顺序');
-  }
-
-  return response.json();
-}
-
-export async function getReadingProgress(bookId) {
-  const response = await fetch(`/api/reading/${bookId}`);
-
-  if (!response.ok) {
-    throw new Error('无法加载阅读进度');
-  }
-
-  return response.json();
-}
-
-export async function listRecentReading() {
-  const response = await fetch('/api/reading/recent');
-
-  if (!response.ok) {
-    throw new Error('无法加载最近阅读');
-  }
-
-  return response.json();
-}
-
-export async function saveReadingProgress(bookId, { cfi, progress, chapterHref, chapterLabel }) {
-  const response = await fetch(`/api/reading/${bookId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cfi, progress, chapterHref, chapterLabel }),
-  });
-
-  if (!response.ok) {
-    throw new Error('无法保存阅读进度');
-  }
-
-  return response.json();
-}
-
-export async function getReaderSettings() {
-  const response = await fetch('/api/reader-settings');
-
-  if (!response.ok) {
-    throw new Error('无法加载阅读设置');
-  }
-
-  return response.json();
-}
-
-export async function saveReaderSettings(settings) {
-  const response = await fetch('/api/reader-settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  });
-
-  if (!response.ok) {
-    throw new Error('无法保存阅读设置');
   }
 
   return response.json();

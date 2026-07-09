@@ -5,7 +5,11 @@ import {
   getReadingProgress,
   saveReaderSettings,
   saveReadingProgress,
-} from '../../api/books.js';
+} from '../../api/readingApi.js';
+import { ReaderBottomBar } from './ReaderBottomBar.jsx';
+import { ReaderSettingsPanel } from './ReaderSettingsPanel.jsx';
+import { ReaderTopBar } from './ReaderTopBar.jsx';
+import { TocPanel } from './TocPanel.jsx';
 
 const SAVE_DEBOUNCE_MS = 2000;
 const SETTINGS_SAVE_DEBOUNCE_MS = 500;
@@ -889,6 +893,60 @@ export function ReaderView({ book, originRect, onClose }) {
   const pageProgressLabel = pageProgress
     ? `${pageProgress.current}/${pageProgress.total}`
     : '--/--';
+  const layoutSettings = [
+    {
+      id: 'reader-horizontal-margin-title',
+      label: '左右边距',
+      value: horizontalMargin,
+      valueLabel: `额外 ${horizontalMargin}px / 实际 ${getEffectiveHorizontalMargin(horizontalMargin)}px`,
+      min: HORIZONTAL_MARGIN_MIN,
+      max: HORIZONTAL_MARGIN_MAX,
+      step: HORIZONTAL_MARGIN_STEP,
+      onChange: handleHorizontalMarginChange,
+    },
+    {
+      id: 'reader-vertical-margin-title',
+      label: '上下边距',
+      value: verticalMargin,
+      valueLabel: `额外 ${verticalMargin}px / 实际 ${getEffectiveVerticalMargin(verticalMargin)}px`,
+      min: VERTICAL_MARGIN_MIN,
+      max: VERTICAL_MARGIN_MAX,
+      step: VERTICAL_MARGIN_STEP,
+      onChange: handleVerticalMarginChange,
+    },
+    {
+      id: 'reader-line-height-title',
+      label: '行距',
+      value: lineHeight,
+      valueLabel: lineHeight.toFixed(1),
+      min: LINE_HEIGHT_MIN,
+      max: LINE_HEIGHT_MAX,
+      step: LINE_HEIGHT_STEP,
+      onChange: handleLineHeightChange,
+    },
+    {
+      id: 'reader-letter-spacing-title',
+      label: '字距',
+      value: letterSpacing,
+      valueLabel: letterSpacing === 0 ? '默认' : `${letterSpacing.toFixed(2)}em`,
+      min: LETTER_SPACING_MIN,
+      max: LETTER_SPACING_MAX,
+      step: LETTER_SPACING_STEP,
+      onChange: handleLetterSpacingChange,
+    },
+  ];
+
+  const handleToggleTocPanel = () => {
+    setActivePanel((panel) => (panel === 'toc' ? null : 'toc'));
+  };
+
+  const handleToggleSettingsPanel = () => {
+    setActivePanel((panel) => {
+      if (panel === 'settings') return null;
+      setSettingsView('main');
+      return 'settings';
+    });
+  };
 
   return (
     <div
@@ -902,21 +960,12 @@ export function ReaderView({ book, originRect, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-label={`正在阅读：${book?.title || '书籍'}`}
-    >{/* header floats above the reading area; toggled by center tap */}
-      <header className="reader-header">
-        <button
-          className="reader-close-button"
-          type="button"
-          aria-label="返回书架"
-          onClick={handleCloseClick}
-        >
-          <span aria-hidden="true" />
-        </button>
-        <span className="reader-title">{book?.title || ''}</span>
-        <span className="reader-progress-label" aria-label={`进度 ${Math.round(progress * 100)}%`}>
-          {progress > 0 ? `${Math.round(progress * 100)}%` : ''}
-        </span>
-      </header>
+    >
+      <ReaderTopBar
+        onClose={handleCloseClick}
+        progress={progress}
+        title={book?.title}
+      />
 
       {book?.coverUrl && (
         <img
@@ -967,284 +1016,48 @@ export function ReaderView({ book, originRect, onClose }) {
         </span>
       )}
 
-      {/* Bottom bar: entry points, shows/hides with the rest of the chrome */}
       {!isLoading && !error && (
-        <nav className="reader-bottombar" aria-label="阅读器控制">
-          <button
-            type="button"
-            className={`reader-bottombar-button${activePanel === 'toc' ? ' is-active' : ''}`}
-            onClick={() => setActivePanel((p) => (p === 'toc' ? null : 'toc'))}
-          >
-            <span className="reader-bb-icon reader-bb-icon-toc" aria-hidden="true" />
-            目录
-          </button>
-          <button
-            type="button"
-            className={`reader-bottombar-button${activePanel === 'settings' ? ' is-active' : ''}`}
-            onClick={() => setActivePanel((p) => {
-              if (p === 'settings') return null;
-              setSettingsView('main');
-              return 'settings';
-            })}
-          >
-            <span className="reader-bb-icon reader-bb-icon-aa" aria-hidden="true">Aa</span>
-            设置
-          </button>
-        </nav>
+        <ReaderBottomBar
+          activePanel={activePanel}
+          onToggleSettings={handleToggleSettingsPanel}
+          onToggleToc={handleToggleTocPanel}
+        />
       )}
 
-      {/* Sliding panels: TOC and Aa settings */}
       {activePanel && (
         <div className="reader-panel-backdrop" onClick={() => setActivePanel(null)} />
       )}
       {activePanel === 'toc' && (
-        <div className="reader-panel reader-panel-toc" role="dialog" aria-label="章节目录">
-          <div className="reader-panel-handle" aria-hidden="true" />
-          <h2 className="reader-panel-title">目录</h2>
-          <ul className="reader-toc-list">
-            {toc.length === 0 && <li className="reader-toc-empty">无目录信息</li>}
-            {toc.map((item) => (
-              <TocItem
-                key={item.href || item.id || item.label}
-                item={item}
-                currentHref={currentHref}
-                onSelect={goToHref}
-              />
-            ))}
-          </ul>
-        </div>
+        <TocPanel
+          currentHref={currentHref}
+          onSelect={goToHref}
+          toc={toc}
+        />
       )}
       {activePanel === 'settings' && (
-        <div className="reader-panel reader-panel-settings" role="dialog" aria-label="阅读设置">
-          <div className="reader-panel-handle" aria-hidden="true" />
-          {settingsView === 'main' ? (
-            <h2 className="reader-panel-title">Aa 设置</h2>
-          ) : (
-            <div className="reader-panel-subheader">
-              <button
-                type="button"
-                className="reader-panel-back-button"
-                onClick={() => setSettingsView('main')}
-                aria-label="返回 Aa 设置"
-              >
-                <span aria-hidden="true">‹</span>
-              </button>
-              <h2 className="reader-panel-title reader-panel-subtitle">字体</h2>
-            </div>
-          )}
-          <div className="reader-settings-content">
-            {settingsView === 'main' ? (
-              <>
-                <section className="reader-settings-group" aria-labelledby="reader-text-settings-title">
-                  <h3 id="reader-text-settings-title" className="reader-settings-group-title">文字</h3>
-                  <button
-                    type="button"
-                    className="reader-settings-menu-item"
-                    onClick={() => setSettingsView('font')}
-                  >
-                    <span className="reader-settings-label">字体</span>
-                    <span className="reader-settings-menu-meta">
-                      <span className="reader-settings-value">{readerFont.label} / {fontSize}%</span>
-                      <span className="reader-settings-chevron" aria-hidden="true">›</span>
-                    </span>
-                  </button>
-                </section>
-
-                <section className="reader-settings-group" aria-labelledby="reader-layout-settings-title">
-                  <h3 id="reader-layout-settings-title" className="reader-settings-group-title">排版</h3>
-                  <ReaderRangeSetting
-                    id="reader-horizontal-margin-title"
-                    label="左右边距"
-                    value={horizontalMargin}
-                    valueLabel={`额外 ${horizontalMargin}px / 实际 ${getEffectiveHorizontalMargin(horizontalMargin)}px`}
-                    min={HORIZONTAL_MARGIN_MIN}
-                    max={HORIZONTAL_MARGIN_MAX}
-                    step={HORIZONTAL_MARGIN_STEP}
-                    onChange={handleHorizontalMarginChange}
-                  />
-                  <ReaderRangeSetting
-                    id="reader-vertical-margin-title"
-                    label="上下边距"
-                    value={verticalMargin}
-                    valueLabel={`额外 ${verticalMargin}px / 实际 ${getEffectiveVerticalMargin(verticalMargin)}px`}
-                    min={VERTICAL_MARGIN_MIN}
-                    max={VERTICAL_MARGIN_MAX}
-                    step={VERTICAL_MARGIN_STEP}
-                    onChange={handleVerticalMarginChange}
-                  />
-                  <ReaderRangeSetting
-                    id="reader-line-height-title"
-                    label="行距"
-                    value={lineHeight}
-                    valueLabel={lineHeight.toFixed(1)}
-                    min={LINE_HEIGHT_MIN}
-                    max={LINE_HEIGHT_MAX}
-                    step={LINE_HEIGHT_STEP}
-                    onChange={handleLineHeightChange}
-                  />
-                  <ReaderRangeSetting
-                    id="reader-letter-spacing-title"
-                    label="字距"
-                    value={letterSpacing}
-                    valueLabel={letterSpacing === 0 ? '默认' : `${letterSpacing.toFixed(2)}em`}
-                    min={LETTER_SPACING_MIN}
-                    max={LETTER_SPACING_MAX}
-                    step={LETTER_SPACING_STEP}
-                    onChange={handleLetterSpacingChange}
-                  />
-                </section>
-
-                <section className="reader-settings-group" aria-labelledby="reader-appearance-settings-title">
-                  <h3 id="reader-appearance-settings-title" className="reader-settings-group-title">外观</h3>
-                  <div className="reader-settings-section" aria-labelledby="reader-theme-title">
-                    <div className="reader-settings-row">
-                      <span id="reader-theme-title" className="reader-settings-label">主题</span>
-                      <span className="reader-settings-value">{readerTheme.label}</span>
-                    </div>
-                    <div className="reader-theme-options" role="group" aria-labelledby="reader-theme-title">
-                      {READER_THEME_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className={`reader-theme-option${readerThemeId === option.id ? ' is-active' : ''}`}
-                          onClick={() => setReaderThemeId(option.id)}
-                          aria-pressed={readerThemeId === option.id}
-                        >
-                          <span
-                            className="reader-theme-swatch"
-                            style={{
-                              backgroundColor: option.swatch,
-                              color: option.text,
-                            }}
-                            aria-hidden="true"
-                          />
-                          <span>{option.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                </section>
-              </>
-            ) : (
-              <section className="reader-settings-group reader-settings-font-panel" aria-labelledby="reader-font-settings-title">
-                <h3 id="reader-font-settings-title" className="reader-settings-group-title">字体大小</h3>
-                <div className="reader-settings-section" aria-labelledby="reader-font-size-title">
-                  <div className="reader-settings-row">
-                    <span id="reader-font-size-title" className="reader-settings-label">大小</span>
-                    <span className="reader-settings-value">{fontSize}%</span>
-                  </div>
-                  <div className="reader-font-size-control">
-                    <button
-                      type="button"
-                      className="reader-font-step"
-                      onClick={decreaseFontSize}
-                      disabled={fontSize <= FONT_SIZE_MIN}
-                      aria-label="减小字体"
-                    >
-                      A
-                    </button>
-                    <input
-                      className="reader-setting-slider"
-                      type="range"
-                      min={FONT_SIZE_MIN}
-                      max={FONT_SIZE_MAX}
-                      step={FONT_SIZE_STEP}
-                      value={fontSize}
-                      onChange={handleFontSizeChange}
-                      aria-labelledby="reader-font-size-title"
-                    />
-                    <button
-                      type="button"
-                      className="reader-font-step reader-font-step-large"
-                      onClick={increaseFontSize}
-                      disabled={fontSize >= FONT_SIZE_MAX}
-                      aria-label="增大字体"
-                    >
-                      A
-                    </button>
-                  </div>
-                </div>
-
-                <div className="reader-settings-section" aria-labelledby="reader-font-family-title">
-                  <div className="reader-settings-row">
-                    <span id="reader-font-family-title" className="reader-settings-label">字体</span>
-                    <span className="reader-settings-value">{readerFont.label}</span>
-                  </div>
-                  <div className="reader-font-options" role="group" aria-labelledby="reader-font-family-title">
-                    {FONT_FAMILY_OPTIONS.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={`reader-font-option${fontFamilyId === option.id ? ' is-active' : ''}`}
-                        style={{ fontFamily: option.value }}
-                        onClick={() => setFontFamilyId(option.id)}
-                        aria-pressed={fontFamilyId === option.id}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </section>
-            )}
-          </div>
-        </div>
+        <ReaderSettingsPanel
+          fontFamilyId={fontFamilyId}
+          fontFamilyOptions={FONT_FAMILY_OPTIONS}
+          fontSize={fontSize}
+          fontSizeMax={FONT_SIZE_MAX}
+          fontSizeMin={FONT_SIZE_MIN}
+          fontSizeStep={FONT_SIZE_STEP}
+          layoutSettings={layoutSettings}
+          onBackToMain={() => setSettingsView('main')}
+          onDecreaseFontSize={decreaseFontSize}
+          onFontFamilyChange={setFontFamilyId}
+          onFontSizeChange={handleFontSizeChange}
+          onIncreaseFontSize={increaseFontSize}
+          onOpenFontSettings={() => setSettingsView('font')}
+          onThemeChange={setReaderThemeId}
+          readerFont={readerFont}
+          readerTheme={readerTheme}
+          readerThemeId={readerThemeId}
+          settingsView={settingsView}
+          themeOptions={READER_THEME_OPTIONS}
+        />
       )}
     </div>
-  );
-}
-
-function ReaderRangeSetting({ id, label, value, valueLabel, min, max, step, onChange }) {
-  return (
-    <div className="reader-settings-section" aria-labelledby={id}>
-      <div className="reader-settings-row">
-        <span id={id} className="reader-settings-label">{label}</span>
-        <span className="reader-settings-value">{valueLabel}</span>
-      </div>
-      <input
-        className="reader-setting-slider"
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={onChange}
-        aria-labelledby={id}
-      />
-    </div>
-  );
-}
-
-// Renders a TOC entry plus one level of nested subitems (no deeper nesting UI)
-function TocItem({ item, currentHref, onSelect }) {
-  const href = item.href || '';
-  const active = currentHref && href && currentHref.split('#')[0] === href.split('#')[0];
-  return (
-    <li>
-      <button
-        type="button"
-        className={`reader-toc-entry${active ? ' is-current' : ''}`}
-        onClick={() => onSelect(href)}
-      >
-        {item.label?.trim() || '未命名章节'}
-      </button>
-      {Array.isArray(item.subitems) && item.subitems.length > 0 && (
-        <ul className="reader-toc-sublist">
-          {item.subitems.map((sub) => (
-            <li key={sub.href || sub.id || sub.label}>
-              <button
-                type="button"
-                className="reader-toc-entry reader-toc-subentry"
-                onClick={() => onSelect(sub.href || '')}
-              >
-                {sub.label?.trim() || '未命名章节'}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </li>
   );
 }
 

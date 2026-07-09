@@ -1,0 +1,5 @@
+@media (display-mode: standalone) {
+  body {
+    background: var(--shelf-wood-background);
+  }
+}

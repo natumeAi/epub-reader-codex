@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { deleteBook } from '../api/books.js';
+import { deleteBook } from '../api/booksApi.js';
 
 const noop = () => {};
 

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { lazy, Suspense, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -9,12 +9,13 @@ import { DragPreview } from './components/bookshelf/DragPreview.jsx';
 import { FixedDragPreview } from './components/bookshelf/FixedDragPreview.jsx';
 import { LibraryHome } from './components/bookshelf/LibraryHome.jsx';
 import { FolderOverlay } from './components/folders/FolderOverlay.jsx';
-import { ReaderView } from './components/reader/ReaderView.jsx';
 import { useBookDeletion } from './hooks/useBookDeletion.js';
 import { useFolderState } from './hooks/useFolderState.js';
 import { useLibraryDrag } from './hooks/useLibraryDrag.js';
 import { useReaderSession } from './hooks/useReaderSession.js';
 import { useShelfData } from './hooks/useShelfData.js';
+
+const ReaderView = lazy(() => import('./components/reader/ReaderView.jsx'));
 
 function App() {
   const fileInputRef = useRef(null);
@@ -175,11 +176,13 @@ function App() {
           renameDraft={folderNameDraft}
         />
         {readingBook && (
-          <ReaderView
-            book={readingBook}
-            originRect={readingBookOrigin}
-            onClose={handleCloseReader}
-          />
+          <Suspense fallback={null}>
+            <ReaderView
+              book={readingBook}
+              originRect={readingBookOrigin}
+              onClose={handleCloseReader}
+            />
+          </Suspense>
         )}
         <DeleteDropZone
           visible={activeDragPreview?.type === 'book' || activeDragPreview?.type === 'folder-book'}

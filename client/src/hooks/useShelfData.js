@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  listRecentReading,
   listShelfItems,
-} from '../api/books.js';
+} from '../api/foldersApi.js';
+import { listRecentReading } from '../api/readingApi.js';
 import { normalizeShelfItem } from '../utils/libraryItems.js';
 import { useUploadBooks } from './useUploadBooks.js';
 

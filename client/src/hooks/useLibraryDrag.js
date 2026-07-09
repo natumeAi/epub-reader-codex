@@ -16,7 +16,7 @@ import {
   moveShelfBookToFolder,
   updateFolderBookOrder,
   updateShelfItemOrder,
-} from '../api/books.js';
+} from '../api/foldersApi.js';
 import { DELETE_DROPZONE_ID } from '../components/bookshelf/DeleteDropZone.jsx';
 import {
   activeCollision,

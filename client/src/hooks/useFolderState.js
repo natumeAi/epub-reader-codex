@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   listFolderBooks,
   renameFolder,
-} from '../api/books.js';
+} from '../api/foldersApi.js';
 import { normalizeFolderBook } from '../utils/libraryItems.js';
 
 const FOLDER_CLOSE_ANIM_MS = 180;

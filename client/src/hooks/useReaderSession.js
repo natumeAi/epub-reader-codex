@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getBook } from '../api/books.js';
+import { getBook } from '../api/booksApi.js';
 import {
   clearActiveReaderBookId,
   readActiveReaderBookId,

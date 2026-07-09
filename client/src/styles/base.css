@@ -1,8 +1,8 @@
 :root {
   --app-max-width: 760px;
-  --book-cover-width: 120px;
-  --book-cover-height: 180px;
-  --shelf-item-height: 224px;
+  --book-cover-width: 110px;
+  --book-cover-height: 165px;
+  --shelf-item-height: 209px;
   --shelf-column-gap: clamp(18px, 4vw, 28px);
   --shelf-row-gap: 28px;
   --shelf-row-unit: calc(var(--shelf-item-height) + var(--shelf-row-gap));
@@ -1020,9 +1020,9 @@ h1 {
 
 @media (max-width: 374px) {
   :root {
-    --book-cover-width: 115px;
-    --book-cover-height: 172.5px;
-    --shelf-item-height: 217px;
+    --book-cover-width: 104px;
+    --book-cover-height: 156px;
+    --shelf-item-height: 200px;
     --shelf-column-gap: 8px;
   }
 

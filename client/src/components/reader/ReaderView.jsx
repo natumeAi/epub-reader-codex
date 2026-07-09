@@ -11,9 +11,11 @@ import { TocPanel } from './TocPanel.jsx';
 const SAVE_DEBOUNCE_MS = 2000;
 // Horizontal travel (px) past which a pointer gesture counts as a swipe, not a tap
 const SWIPE_THRESHOLD = 45;
-// Page-turn animation
-const PAGE_SLIDE_OUT_MS = 180;
-const PAGE_SLIDE_IN_MS = 180;
+// Page-turn animation. Start the visual response before epub.js navigation,
+// but do not let epub.js swap iframe contents before the current page leaves.
+const PAGE_SLIDE_OUT_MS = 80;
+const PAGE_SLIDE_IN_MS = 80;
+const PAGE_NAV_TIMEOUT_MS = 1200;
 // Open/close FLIP animation: overlay scales between the shelf cover rect and full screen.
 // Same duration/easing both directions to keep open/close symmetric.
 const READER_FLIP_ANIM_MS = 300;
@@ -21,6 +23,30 @@ const READER_FLIP_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const READER_COVER_FADE_MS = 200;
 // Fallback when the origin/target cover rect can't be found (e.g. off-screen).
 const READER_FALLBACK_ANIM_MS = 220;
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function waitForRelocated(rendition, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      rendition.off?.('relocated', finish);
+      resolve();
+    };
+
+    rendition.on?.('relocated', finish);
+    timer = setTimeout(finish, timeoutMs);
+  });
+}
 
 function isKeyboardEditingTarget(target) {
   if (!(target instanceof Element)) return false;
@@ -56,7 +82,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const [activePanel, setActivePanel] = useState(null);
   // Settings panel page: 'main' | 'font'
   const [settingsView, setSettingsView] = useState('main');
-  // Fixed two-stage page slide: old page exits, epub.js turns once, new page enters.
+  // Fixed page slide: current page moves immediately, then epub.js navigates while hidden.
   const [pageTurn, setPageTurn] = useState(null);
   // Open/close FLIP animation state: the overlay transform collapses onto (or
   // expands from) the shelf cover rect captured at click time.
@@ -219,15 +245,15 @@ export function ReaderView({ book, originRect, onClose }) {
     animatingRef.current = true;
     try {
       setPageTurn({ dir, phase: 'out', key: Date.now() });
-      await new Promise((resolve) => {
-        setTimeout(resolve, PAGE_SLIDE_OUT_MS);
-      });
-      await nav();
+      await wait(PAGE_SLIDE_OUT_MS);
+
+      const relocated = waitForRelocated(rendition, PAGE_NAV_TIMEOUT_MS);
+      Promise.resolve(nav()).catch(() => {});
+      await relocated;
       applyReaderSettings(rendition, readerSettingsRef.current);
+
       setPageTurn({ dir, phase: 'in', key: Date.now() });
-      await new Promise((resolve) => {
-        setTimeout(resolve, PAGE_SLIDE_IN_MS);
-      });
+      await wait(PAGE_SLIDE_IN_MS);
       setPageTurn(null);
     } finally {
       setPageTurn(null);
@@ -370,6 +396,16 @@ export function ReaderView({ book, originRect, onClose }) {
             pageTurn ? `reader-page-slide-${pageTurn.dir}` : '',
           ].filter(Boolean).join(' ')}
         />
+        {pageTurn && (
+          <div
+            className={[
+              'reader-page-turn-sheet',
+              `reader-page-turn-sheet-${pageTurn.phase}`,
+              `reader-page-turn-sheet-${pageTurn.dir}`,
+            ].join(' ')}
+            aria-hidden="true"
+          />
+        )}
       </div>
 
       {/* Gesture layer: tap thirds (prev / toggle chrome / next) + horizontal swipe */}

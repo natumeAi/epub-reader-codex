@@ -132,9 +132,11 @@
 .reader-epub-container {
   position: absolute;
   inset: 0;
+  z-index: 1;
   background: var(--reader-bg);
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
+  contain: layout paint;
   will-change: transform;
 }
 
@@ -187,19 +189,40 @@
 }
 
 .reader-page-slide-out.reader-page-slide-next {
-  animation: reader-page-slide-out-next 180ms ease-in forwards;
+  animation: reader-page-slide-out-next 80ms ease-in forwards;
 }
 
 .reader-page-slide-out.reader-page-slide-prev {
-  animation: reader-page-slide-out-prev 180ms ease-in forwards;
+  animation: reader-page-slide-out-prev 80ms ease-in forwards;
 }
 
 .reader-page-slide-in.reader-page-slide-next {
-  animation: reader-page-slide-in-next 180ms ease-out forwards;
+  animation: reader-page-slide-in-next 80ms ease-out forwards;
 }
 
 .reader-page-slide-in.reader-page-slide-prev {
-  animation: reader-page-slide-in-prev 180ms ease-out forwards;
+  animation: reader-page-slide-in-prev 80ms ease-out forwards;
+}
+
+.reader-page-turn-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: var(--reader-bg);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.reader-page-turn-sheet-out.reader-page-turn-sheet-next {
+  animation: reader-page-sheet-in-next 80ms ease-in forwards;
+}
+
+.reader-page-turn-sheet-out.reader-page-turn-sheet-prev {
+  animation: reader-page-sheet-in-prev 80ms ease-in forwards;
+}
+
+.reader-page-turn-sheet-in {
+  transform: translate3d(0, 0, 0);
 }
 
 @keyframes reader-page-slide-out-next {
@@ -218,6 +241,16 @@
 }
 
 @keyframes reader-page-slide-in-prev {
+  from { transform: translate3d(-100%, 0, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes reader-page-sheet-in-next {
+  from { transform: translate3d(100%, 0, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes reader-page-sheet-in-prev {
   from { transform: translate3d(-100%, 0, 0); }
   to { transform: translate3d(0, 0, 0); }
 }

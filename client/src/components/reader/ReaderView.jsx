@@ -193,7 +193,7 @@ function rectToTransformString(rect) {
   return `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / vw}, ${rect.height / vh})`;
 }
 
-function getReaderLayoutCss({ lineHeight, letterSpacing }) {
+function getReaderLayoutCss({ verticalMargin, lineHeight, letterSpacing }) {
   return `
     html {
       margin: 0 !important;
@@ -201,6 +201,8 @@ function getReaderLayoutCss({ lineHeight, letterSpacing }) {
     }
 
     body {
+      padding-top: ${verticalMargin}px !important;
+      padding-bottom: ${verticalMargin}px !important;
       line-height: ${lineHeight} !important;
       letter-spacing: ${letterSpacing}em !important;
     }
@@ -273,6 +275,9 @@ async function applyReaderHorizontalMargin(rendition, horizontalMargin, cfi) {
 function applyReaderSettings(rendition, settings) {
   if (!rendition?.themes) return;
   const theme = getReaderTheme(settings.themeId);
+  const verticalMargin = `${settings.verticalMargin}px`;
+  const lineHeight = String(settings.lineHeight);
+  const letterSpacing = `${settings.letterSpacing}em`;
 
   try {
     rendition.themes.register(settings.themeId, {
@@ -296,6 +301,12 @@ function applyReaderSettings(rendition, settings) {
     applyReaderLayoutStylesToContents(contents, settings);
     applyReaderThemeStylesToContents(contents, theme);
   });
+  rendition.themes.override('padding-top', verticalMargin, true);
+  rendition.themes.override('padding-bottom', verticalMargin, true);
+  rendition.themes.override('line-height', lineHeight, true);
+  rendition.themes.override('letter-spacing', letterSpacing, true);
+  rendition.themes.override('background', theme.background, true);
+  rendition.themes.override('color', theme.text, true);
   rendition.themes.fontSize(`${settings.fontSize}%`);
   rendition.themes.font(getReaderFontFamily(settings.fontFamilyId));
 }
@@ -679,6 +690,7 @@ export function ReaderView({ book, originRect, onClose }) {
         setTimeout(resolve, PAGE_SLIDE_OUT_MS);
       });
       await nav();
+      applyReaderSettings(rendition, readerSettingsRef.current);
       setPageTurn({ dir, phase: 'in', key: Date.now() });
       await new Promise((resolve) => {
         setTimeout(resolve, PAGE_SLIDE_IN_MS);

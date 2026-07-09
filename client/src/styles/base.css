@@ -1316,6 +1316,23 @@ h1 {
   color: var(--accent);
 }
 
+.reader-page-progress {
+  position: absolute;
+  left: 50%;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  z-index: 2;
+  min-width: 64px;
+  padding: 2px 8px;
+  transform: translateX(-50%);
+  color: var(--reader-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .reader-bb-icon {
   display: flex;
   align-items: center;

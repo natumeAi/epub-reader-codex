@@ -149,6 +149,28 @@ function getEffectiveVerticalMargin(verticalMargin) {
   return BASE_VERTICAL_MARGIN + clampVerticalMargin(verticalMargin);
 }
 
+function getPageProgressFromLocation(location) {
+  const displayed = location?.start?.displayed;
+  const current = Number(displayed?.page);
+  const total = Number(displayed?.total);
+
+  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
+    return null;
+  }
+
+  return {
+    current: Math.min(total, Math.max(1, Math.round(current))),
+    total: Math.max(1, Math.round(total)),
+  };
+}
+
+async function getCurrentRenditionLocation(rendition) {
+  const location = rendition?.currentLocation?.();
+  if (!location) return null;
+
+  return typeof location.then === 'function' ? location : Promise.resolve(location);
+}
+
 function clampLineHeight(value) {
   return Number(
     clampNumber(value, LINE_HEIGHT_MIN, LINE_HEIGHT_MAX, DEFAULT_LINE_HEIGHT).toFixed(1),
@@ -339,6 +361,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
+  const [pageProgress, setPageProgress] = useState(null);
   const [chromeVisible, setChromeVisible] = useState(false);
   // Bottom-bar panel: null | 'toc' | 'settings'
   const [activePanel, setActivePanel] = useState(null);
@@ -416,6 +439,7 @@ export function ReaderView({ book, originRect, onClose }) {
     let destroyed = false;
     setIsLoading(true);
     setError('');
+    setPageProgress(null);
     setToc([]);
     setHasLoadedReaderSettings(false);
 
@@ -506,6 +530,7 @@ export function ReaderView({ book, originRect, onClose }) {
           const progressValue =
             typeof pct === 'number' && Number.isFinite(pct) ? pct : 0;
           setProgress(progressValue);
+          setPageProgress(getPageProgressFromLocation(location));
           setCurrentHref(location.start.href || null);
           scheduleSave({
             cfi,
@@ -603,7 +628,20 @@ export function ReaderView({ book, originRect, onClose }) {
       themeId: readerThemeId,
     };
     if (isLoading || error) return;
-    applyReaderSettings(renditionRef.current, readerSettingsRef.current);
+    const rendition = renditionRef.current;
+    applyReaderSettings(rendition, readerSettingsRef.current);
+
+    const timer = setTimeout(() => {
+      getCurrentRenditionLocation(rendition)
+        .then((location) => {
+          if (renditionRef.current !== rendition) return;
+          const nextPageProgress = getPageProgressFromLocation(location);
+          if (nextPageProgress) setPageProgress(nextPageProgress);
+        })
+        .catch(() => {});
+    }, 80);
+
+    return () => clearTimeout(timer);
   }, [
     fontSize,
     fontFamilyId,
@@ -618,11 +656,19 @@ export function ReaderView({ book, originRect, onClose }) {
 
   useEffect(() => {
     if (isLoading || error) return;
+    const rendition = renditionRef.current;
     applyReaderHorizontalMargin(
-      renditionRef.current,
+      rendition,
       horizontalMargin,
       currentCfiRef.current,
-    ).catch(() => {});
+    )
+      .then(() => getCurrentRenditionLocation(rendition))
+      .then((location) => {
+        if (renditionRef.current !== rendition) return;
+        const nextPageProgress = getPageProgressFromLocation(location);
+        if (nextPageProgress) setPageProgress(nextPageProgress);
+      })
+      .catch(() => {});
   }, [horizontalMargin, isLoading, error]);
 
   useEffect(() => {
@@ -817,6 +863,9 @@ export function ReaderView({ book, originRect, onClose }) {
   if (flipTransitionEnabled) {
     overlayStyle.transition = `transform ${READER_FLIP_ANIM_MS}ms ${READER_FLIP_EASE}`;
   }
+  const pageProgressLabel = pageProgress
+    ? `${pageProgress.current}/${pageProgress.total}`
+    : '--/--';
 
   return (
     <div
@@ -887,6 +936,12 @@ export function ReaderView({ book, originRect, onClose }) {
           onPointerUp={handlePointerUp}
           aria-hidden="true"
         />
+      )}
+
+      {!isLoading && !error && (
+        <span className="reader-page-progress" aria-label={`页码 ${pageProgressLabel}`}>
+          {pageProgressLabel}
+        </span>
       )}
 
       {/* Bottom bar: entry points, shows/hides with the rest of the chrome */}

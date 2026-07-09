@@ -750,6 +750,7 @@ function App() {
   const [hasLoadedShelf, setHasLoadedShelf] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [openFolder, setOpenFolder] = useState(null);
   const [isFolderClosing, setIsFolderClosing] = useState(false);
@@ -1256,22 +1257,48 @@ function App() {
   );
 
   async function handleFileChange(event) {
-    const file = event.target.files?.[0];
+    if (isUploading) {
+      event.target.value = '';
+      return;
+    }
 
-    if (!file) {
+    const files = Array.from(event.target.files || []);
+
+    if (!files.length) {
       return;
     }
 
     setIsUploading(true);
+    setUploadProgress(`正在上传 1/${files.length}`);
     setError('');
 
     try {
-      await uploadBook(file);
+      const failedFiles = [];
+
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+
+        setUploadProgress(`正在上传 ${index + 1}/${files.length}`);
+
+        try {
+          await uploadBook(file);
+        } catch {
+          failedFiles.push(file.name || '未命名文件');
+        }
+      }
+
+      setUploadProgress('正在更新书架');
       await loadShelf();
+
+      if (failedFiles.length) {
+        const successCount = files.length - failedFiles.length;
+        setError(`${successCount} 本上传完成，${failedFiles.length} 本失败：${failedFiles.join('、')}`);
+      }
     } catch (err) {
       setError(err.message || '上传失败');
     } finally {
       setIsUploading(false);
+      setUploadProgress('');
       event.target.value = '';
     }
   }
@@ -1756,6 +1783,7 @@ function App() {
             className="file-input"
             type="file"
             accept=".epub,application/epub+zip"
+            multiple
             onChange={handleFileChange}
           />
         </div>
@@ -1768,7 +1796,7 @@ function App() {
 
         {isUploading || isSavingOrder || (isLoading && hasLoadedShelf) ? (
           <p className="status-message" role="status">
-            {isUploading ? '正在上传' : isSavingOrder ? '正在保存顺序' : '正在更新书架'}
+            {isUploading ? uploadProgress || '正在上传' : isSavingOrder ? '正在保存顺序' : '正在更新书架'}
           </p>
         ) : null}
 

@@ -31,27 +31,3 @@ export async function saveReadingProgress(bookId, { cfi, progress, chapterHref, 
 
   return response.json();
 }
-
-export async function getReaderSettings() {
-  const response = await fetch('/api/reader-settings');
-
-  if (!response.ok) {
-    throw new Error('无法加载阅读设置');
-  }
-
-  return response.json();
-}
-
-export async function saveReaderSettings(settings) {
-  const response = await fetch('/api/reader-settings', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  });
-
-  if (!response.ok) {
-    throw new Error('无法保存阅读设置');
-  }
-
-  return response.json();
-}

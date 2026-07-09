@@ -13,11 +13,11 @@ export function FontSettingsPanel({
 }) {
   return (
     <section className="reader-settings-group reader-settings-font-panel" aria-labelledby="reader-font-settings-title">
-      <h3 id="reader-font-settings-title" className="reader-settings-group-title">字体大小</h3>
+      <h3 id="reader-font-settings-title" className="reader-settings-group-title">字号</h3>
       <div className="reader-settings-section" aria-labelledby="reader-font-size-title">
         <div className="reader-settings-row">
           <span id="reader-font-size-title" className="reader-settings-label">大小</span>
-          <span className="reader-settings-value">{fontSize}%</span>
+          <span className="reader-settings-value">{fontSize}号</span>
         </div>
         <div className="reader-font-size-control">
           <button
@@ -25,7 +25,7 @@ export function FontSettingsPanel({
             className="reader-font-step"
             onClick={onDecreaseFontSize}
             disabled={fontSize <= fontSizeMin}
-            aria-label="减小字体"
+            aria-label="减小字号"
           >
             A
           </button>
@@ -38,13 +38,14 @@ export function FontSettingsPanel({
             value={fontSize}
             onChange={onFontSizeChange}
             aria-labelledby="reader-font-size-title"
+            aria-valuetext={`${fontSize}号`}
           />
           <button
             type="button"
             className="reader-font-step reader-font-step-large"
             onClick={onIncreaseFontSize}
             disabled={fontSize >= fontSizeMax}
-            aria-label="增大字体"
+            aria-label="增大字号"
           >
             A
           </button>

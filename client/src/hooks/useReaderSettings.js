@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getReaderSettings, saveReaderSettings } from '../api/readingApi.js';
 
 const SETTINGS_SAVE_DEBOUNCE_MS = 500;
-const DEFAULT_FONT_SIZE = 100;
-const FONT_SIZE_MIN = 80;
-const FONT_SIZE_MAX = 140;
-const FONT_SIZE_STEP = 10;
+const SETTINGS_STORAGE_KEY = 'epub-reader:reader-settings';
+const DEFAULT_FONT_SIZE = 18;
+const FONT_SIZE_MIN = 14;
+const FONT_SIZE_MAX = 40;
+const FONT_SIZE_STEP = 2;
 const BASE_HORIZONTAL_MARGIN = 48;
 const READER_COLUMN_GAP = 0;
 const DEFAULT_HORIZONTAL_MARGIN = 0;
@@ -116,7 +116,9 @@ function clampNumber(value, min, max, fallback) {
 }
 
 function clampFontSize(value) {
-  return clampNumber(value, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_FONT_SIZE);
+  const clampedValue = clampNumber(value, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_FONT_SIZE);
+  const stepIndex = Math.round((clampedValue - FONT_SIZE_MIN) / FONT_SIZE_STEP);
+  return FONT_SIZE_MIN + stepIndex * FONT_SIZE_STEP;
 }
 
 function clampHorizontalMargin(value) {
@@ -200,6 +202,31 @@ function sanitizeReaderSettings(settings) {
   };
 }
 
+function loadReaderSettingsFromStorage() {
+  if (typeof window === 'undefined') return DEFAULT_READER_SETTINGS;
+
+  try {
+    const storedSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!storedSettings) return DEFAULT_READER_SETTINGS;
+    return sanitizeReaderSettings(JSON.parse(storedSettings));
+  } catch {
+    return DEFAULT_READER_SETTINGS;
+  }
+}
+
+function saveReaderSettingsToStorage(settings) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify(sanitizeReaderSettings(settings)),
+    );
+  } catch {
+    // Ignore unavailable storage; reading settings will fall back to defaults.
+  }
+}
+
 function getReaderLayoutCss({
   fontFamilyId,
   fontSize,
@@ -220,7 +247,7 @@ function getReaderLayoutCss({
     body {
       box-sizing: border-box !important;
       font-family: ${fontFamily} !important;
-      font-size: ${fontSize}% !important;
+      font-size: ${fontSize}px !important;
       padding-left: 0 !important;
       padding-right: 0 !important;
       padding-top: ${effectiveVerticalMargin}px !important;
@@ -263,7 +290,7 @@ function applyReaderLayoutStylesToContents(contents, settings) {
 
   contents.addStylesheetCss?.(getReaderLayoutCss(settings), READER_LAYOUT_STYLE_ID);
 
-  const fontSize = `${settings.fontSize}%`;
+  const fontSize = `${settings.fontSize}px`;
   const fontFamily = getReaderFontFamily(settings.fontFamilyId);
   const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
   const lineHeight = String(settings.lineHeight);
@@ -291,7 +318,7 @@ function applyReaderThemeStylesToContents(contents, theme) {
 function applyReaderLayoutStylesToFrames(container, settings) {
   if (!container) return;
 
-  const fontSize = `${settings.fontSize}%`;
+  const fontSize = `${settings.fontSize}px`;
   const fontFamily = getReaderFontFamily(settings.fontFamilyId);
   const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
 
@@ -347,7 +374,7 @@ function applyReaderSettingsToRendition(rendition, settings) {
   rendition.themes.override('letter-spacing', letterSpacing, true);
   rendition.themes.override('background', theme.background, true);
   rendition.themes.override('color', theme.text, true);
-  rendition.themes.fontSize(`${settings.fontSize}%`);
+  rendition.themes.fontSize(`${settings.fontSize}px`);
   rendition.themes.font(getReaderFontFamily(settings.fontFamilyId));
 }
 
@@ -387,16 +414,17 @@ export function useReaderSettings({
   onSettingsReflow,
   renditionRef,
 }) {
+  const initialSettings = useMemo(() => loadReaderSettingsFromStorage(), []);
   const settingsSaveTimerRef = useRef(null);
   const pendingReaderSettingsRef = useRef(null);
-  const readerSettingsRef = useRef(DEFAULT_READER_SETTINGS);
-  const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
-  const [fontFamilyId, setFontFamilyId] = useState(DEFAULT_FONT_FAMILY_ID);
-  const [horizontalMargin, setHorizontalMargin] = useState(DEFAULT_HORIZONTAL_MARGIN);
-  const [verticalMargin, setVerticalMargin] = useState(DEFAULT_VERTICAL_MARGIN);
-  const [lineHeight, setLineHeight] = useState(DEFAULT_LINE_HEIGHT);
-  const [letterSpacing, setLetterSpacing] = useState(DEFAULT_LETTER_SPACING);
-  const [readerThemeId, setReaderThemeId] = useState(DEFAULT_THEME_ID);
+  const readerSettingsRef = useRef(initialSettings);
+  const [fontSize, setFontSize] = useState(initialSettings.fontSize);
+  const [fontFamilyId, setFontFamilyId] = useState(initialSettings.fontFamilyId);
+  const [horizontalMargin, setHorizontalMargin] = useState(initialSettings.horizontalMargin);
+  const [verticalMargin, setVerticalMargin] = useState(initialSettings.verticalMargin);
+  const [lineHeight, setLineHeight] = useState(initialSettings.lineHeight);
+  const [letterSpacing, setLetterSpacing] = useState(initialSettings.letterSpacing);
+  const [readerThemeId, setReaderThemeId] = useState(initialSettings.themeId);
   const [hasLoadedReaderSettings, setHasLoadedReaderSettings] = useState(false);
 
   const readerSettings = useMemo(() => ({
@@ -435,8 +463,7 @@ export function useReaderSettings({
   }, []);
 
   const loadReaderSettings = useCallback(async () => {
-    const result = await getReaderSettings();
-    return updateReaderSettingsState(result?.settings);
+    return updateReaderSettingsState(loadReaderSettingsFromStorage());
   }, [updateReaderSettingsState]);
 
   const resetReaderSettingsLoad = useCallback(() => {
@@ -449,7 +476,7 @@ export function useReaderSettings({
 
   const flushReaderSettingsSave = useCallback((settings) => {
     if (!settings) return;
-    saveReaderSettings(settings).catch(() => {});
+    saveReaderSettingsToStorage(settings);
   }, []);
 
   const flushPendingReaderSettings = useCallback(() => {

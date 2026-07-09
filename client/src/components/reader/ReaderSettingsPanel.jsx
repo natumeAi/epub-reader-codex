@@ -51,7 +51,7 @@ export function ReaderSettingsPanel({
               >
                 <span className="reader-settings-label">字体</span>
                 <span className="reader-settings-menu-meta">
-                  <span className="reader-settings-value">{readerFont.label} / {fontSize}%</span>
+                  <span className="reader-settings-value">{readerFont.label} / {fontSize}号</span>
                   <span className="reader-settings-chevron" aria-hidden="true">›</span>
                 </span>
               </button>
@@ -141,6 +141,7 @@ function ReaderRangeSetting({ id, label, value, valueLabel, min, max, step, onCh
         value={value}
         onChange={onChange}
         aria-labelledby={id}
+        aria-valuetext={valueLabel}
       />
     </div>
   );

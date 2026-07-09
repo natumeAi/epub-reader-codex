@@ -34,9 +34,14 @@ const page = await browser.newPage({
 
 try {
   await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 30000 });
-  await page.waitForSelector('.book-shell', { timeout: 10000 });
-  await page.locator('.book-shell').first().tap();
+  const firstBook = page.locator('.continue-book-button[data-book-id], button.book-shell[data-book-id]').first();
+  await firstBook.waitFor({ timeout: 10000 });
+  await firstBook.tap();
   await page.waitForSelector('.reader-overlay', { timeout: 15000 });
+  await page.locator('.reader-gesture-layer').tap({ position: { x: 188, y: 334 } });
+  await page.waitForFunction(() => (
+    !document.querySelector('.reader-overlay')?.classList.contains('reader-chrome-hidden')
+  ), { timeout: 10000 });
   await page.locator('.reader-bottombar-button').filter({ hasText: '设置' }).tap();
   await page.waitForSelector('.reader-panel-settings', { timeout: 10000 });
   await page.waitForTimeout(450);
@@ -48,6 +53,15 @@ try {
     const labels = [...panel.querySelectorAll('.reader-settings-label')].map((label) =>
       label.textContent.trim(),
     );
+    const sliders = [...panel.querySelectorAll('input[type="range"]')].map((slider) => {
+      const rect = slider.getBoundingClientRect();
+      return {
+        min: slider.min,
+        max: slider.max,
+        step: slider.step,
+        height: Math.round(rect.height),
+      };
+    });
 
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
@@ -57,14 +71,13 @@ try {
         width: Math.round(panelRect.width),
         height: Math.round(panelRect.height),
       },
-      sliders: panel.querySelectorAll('input[type="range"]').length,
+      sliders,
       labels,
       canScroll: content.scrollHeight > content.clientHeight,
     };
   });
 
   const requiredLabels = [
-    '字体大小',
     '字体',
     '左右边距',
     '上下边距',
@@ -73,10 +86,11 @@ try {
     '主题',
   ];
   const missingLabels = requiredLabels.filter((label) => !result.labels.includes(label));
+  const smallSliders = result.sliders.filter((slider) => slider.height < 44);
 
-  if (result.sliders < 5 || missingLabels.length > 0) {
+  if (result.sliders.length < 4 || missingLabels.length > 0 || smallSliders.length > 0) {
     throw new Error(
-      `Aa 设置面板缺少控件：sliders=${result.sliders}, missing=${missingLabels.join(',')}`,
+      `Aa 设置面板控件异常：sliders=${JSON.stringify(result.sliders)}, missing=${missingLabels.join(',')}`,
     );
   }
 
@@ -99,8 +113,47 @@ try {
     );
   }
 
+  await page.locator('.reader-settings-menu-item').filter({ hasText: '字体' }).tap();
+  await page.waitForSelector('.reader-settings-font-panel', { timeout: 10000 });
+
+  const fontResult = await page.evaluate(() => {
+    const panel = document.querySelector('.reader-panel-settings');
+    const fontSlider = panel.querySelector('input[type="range"]');
+    const sliderRect = fontSlider.getBoundingClientRect();
+    const values = [...panel.querySelectorAll('.reader-settings-value')].map((value) =>
+      value.textContent.trim(),
+    );
+
+    return {
+      title: panel.querySelector('.reader-settings-group-title')?.textContent.trim(),
+      fontValue: values.find((value) => value.endsWith('号')) || null,
+      slider: {
+        min: fontSlider.min,
+        max: fontSlider.max,
+        step: fontSlider.step,
+        height: Math.round(sliderRect.height),
+      },
+    };
+  });
+
+  if (
+    fontResult.title !== '字号' ||
+    fontResult.slider.min !== '14' ||
+    fontResult.slider.max !== '40' ||
+    fontResult.slider.step !== '2' ||
+    fontResult.slider.height < 44 ||
+    !fontResult.fontValue
+  ) {
+    throw new Error(`字号设置面板异常：${JSON.stringify(fontResult)}`);
+  }
+
   await page.screenshot({ path: SCREENSHOT_PATH, fullPage: false });
-  console.log(JSON.stringify({ ...result, ...interactionResult, screenshot: SCREENSHOT_PATH }, null, 2));
+  console.log(JSON.stringify({
+    ...result,
+    ...interactionResult,
+    font: fontResult,
+    screenshot: SCREENSHOT_PATH,
+  }, null, 2));
 } finally {
   await browser.close();
 }

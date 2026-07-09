@@ -7,6 +7,7 @@ const FONT_SIZE_MIN = 80;
 const FONT_SIZE_MAX = 140;
 const FONT_SIZE_STEP = 10;
 const BASE_HORIZONTAL_MARGIN = 48;
+const READER_COLUMN_GAP = 0;
 const DEFAULT_HORIZONTAL_MARGIN = 0;
 const HORIZONTAL_MARGIN_MIN = 0;
 const HORIZONTAL_MARGIN_MAX = 48;
@@ -209,6 +210,9 @@ function getReaderLayoutCss({ verticalMargin, lineHeight, letterSpacing }) {
     }
 
     body {
+      box-sizing: border-box !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
       padding-top: ${effectiveVerticalMargin}px !important;
       padding-bottom: ${effectiveVerticalMargin}px !important;
       line-height: ${lineHeight} !important;
@@ -253,6 +257,9 @@ function applyReaderLayoutStylesToContents(contents, settings) {
   const lineHeight = String(settings.lineHeight);
   const letterSpacing = `${settings.letterSpacing}em`;
 
+  contents.css?.('box-sizing', 'border-box', true);
+  contents.css?.('padding-left', '0px', true);
+  contents.css?.('padding-right', '0px', true);
   contents.css?.('padding-top', verticalMargin, true);
   contents.css?.('padding-bottom', verticalMargin, true);
   contents.css?.('line-height', lineHeight, true);
@@ -265,6 +272,23 @@ function applyReaderThemeStylesToContents(contents, theme) {
   contents.addStylesheetCss?.(getReaderThemeCss(theme), READER_THEME_STYLE_ID);
   contents.css?.('background', theme.background, true);
   contents.css?.('color', theme.text, true);
+}
+
+function applyReaderLayoutStylesToFrames(container, settings) {
+  if (!container) return;
+
+  const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
+
+  container.querySelectorAll('iframe').forEach((iframe) => {
+    const body = iframe.contentDocument?.body;
+    if (!body) return;
+
+    body.style.setProperty('box-sizing', 'border-box', 'important');
+    body.style.setProperty('padding-left', '0px', 'important');
+    body.style.setProperty('padding-right', '0px', 'important');
+    body.style.setProperty('padding-top', verticalMargin, 'important');
+    body.style.setProperty('padding-bottom', verticalMargin, 'important');
+  });
 }
 
 function applyReaderSettingsToRendition(rendition, settings) {
@@ -296,6 +320,9 @@ function applyReaderSettingsToRendition(rendition, settings) {
     applyReaderLayoutStylesToContents(contents, settings);
     applyReaderThemeStylesToContents(contents, theme);
   });
+  rendition.themes.override('box-sizing', 'border-box', true);
+  rendition.themes.override('padding-left', '0px', true);
+  rendition.themes.override('padding-right', '0px', true);
   rendition.themes.override('padding-top', verticalMargin, true);
   rendition.themes.override('padding-bottom', verticalMargin, true);
   rendition.themes.override('line-height', lineHeight, true);
@@ -306,20 +333,37 @@ function applyReaderSettingsToRendition(rendition, settings) {
   rendition.themes.font(getReaderFontFamily(settings.fontFamilyId));
 }
 
+function applyReaderHorizontalMarginStylesToRendition(rendition, horizontalMargin) {
+  if (!rendition?.themes) return;
+
+  rendition.getContents?.().forEach((contents) => {
+    contents.css?.('box-sizing', 'border-box', true);
+    contents.css?.('padding-left', '0px', true);
+    contents.css?.('padding-right', '0px', true);
+  });
+  rendition.themes.override('box-sizing', 'border-box', true);
+  rendition.themes.override('padding-left', '0px', true);
+  rendition.themes.override('padding-right', '0px', true);
+}
+
 async function applyReaderHorizontalMarginToRendition(rendition, horizontalMargin, cfi) {
   const manager = rendition?.manager;
   const layout = rendition?._layout;
   if (!manager || !layout) return;
 
-  manager.settings.gap = getEffectiveHorizontalMargin(horizontalMargin) * 2;
+  manager.settings.gap = READER_COLUMN_GAP;
+  rendition.resize?.();
   manager.updateLayout?.();
+  applyReaderHorizontalMarginStylesToRendition(rendition, horizontalMargin);
 
   if (cfi) {
     await rendition.display(cfi);
+    applyReaderHorizontalMarginStylesToRendition(rendition, horizontalMargin);
   }
 }
 
 export function useReaderSettings({
+  containerRef,
   currentCfiRef,
   isReaderReady,
   onSettingsReflow,
@@ -409,9 +453,26 @@ export function useReaderSettings({
     return () => flushPendingReaderSettings();
   }, [flushPendingReaderSettings]);
 
+  const syncReaderFrameLayout = useCallback(() => {
+    const applyLatestLayout = () => {
+      applyReaderLayoutStylesToFrames(containerRef.current, readerSettingsRef.current);
+    };
+
+    applyLatestLayout();
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(applyLatestLayout);
+    } else {
+      setTimeout(applyLatestLayout, 0);
+    }
+
+    setTimeout(applyLatestLayout, 120);
+  }, [containerRef]);
+
   const applyReaderSettings = useCallback((rendition, settings = readerSettingsRef.current) => {
     applyReaderSettingsToRendition(rendition, settings);
-  }, []);
+    syncReaderFrameLayout();
+  }, [syncReaderFrameLayout]);
 
   const applyReaderSettingsToContents = useCallback((contents, settings = readerSettingsRef.current) => {
     const theme = getReaderTheme(settings.themeId);
@@ -425,7 +486,11 @@ export function useReaderSettings({
     cfi = currentCfiRef.current,
   ) => (
     applyReaderHorizontalMarginToRendition(rendition, horizontalMarginValue, cfi)
-  ), [currentCfiRef]);
+      .then((result) => {
+        syncReaderFrameLayout();
+        return result;
+      })
+  ), [currentCfiRef, syncReaderFrameLayout]);
 
   useEffect(() => {
     if (!isReaderReady) return undefined;
@@ -507,6 +572,13 @@ export function useReaderSettings({
 
   const readerTheme = useMemo(() => getReaderTheme(readerThemeId), [readerThemeId]);
   const readerFont = useMemo(() => getReaderFontOption(fontFamilyId), [fontFamilyId]);
+  const readerViewportStyle = useMemo(() => {
+    const horizontalInset = `${getEffectiveHorizontalMargin(horizontalMargin)}px`;
+    return {
+      left: horizontalInset,
+      right: horizontalInset,
+    };
+  }, [horizontalMargin]);
   const layoutSettings = useMemo(() => [
     {
       id: 'reader-horizontal-margin-title',
@@ -582,6 +654,7 @@ export function useReaderSettings({
     readerSettingsRef,
     readerTheme,
     readerThemeId,
+    readerViewportStyle,
     resetReaderSettingsLoad,
     themeOptions: READER_THEME_OPTIONS,
   };

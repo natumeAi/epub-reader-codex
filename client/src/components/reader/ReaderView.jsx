@@ -123,9 +123,11 @@ export function ReaderView({ book, originRect, onClose }) {
     readerSettingsRef,
     readerTheme,
     readerThemeId,
+    readerViewportStyle,
     resetReaderSettingsLoad,
     themeOptions,
   } = useReaderSettings({
+    containerRef,
     currentCfiRef,
     isReaderReady: !isLoading && !error,
     onSettingsReflow: refreshCurrentPageProgress,
@@ -395,6 +397,7 @@ export function ReaderView({ book, originRect, onClose }) {
             pageTurn ? `reader-page-slide-${pageTurn.phase}` : '',
             pageTurn ? `reader-page-slide-${pageTurn.dir}` : '',
           ].filter(Boolean).join(' ')}
+          style={readerViewportStyle}
         />
         {pageTurn && (
           <div

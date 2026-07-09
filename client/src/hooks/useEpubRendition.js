@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Epub from 'epubjs';
 import { getReadingProgress } from '../api/readingApi.js';
 
+const RENDITION_COLUMN_GAP = 0;
+
 export function useEpubRendition({
   applyReaderHorizontalMargin,
   applyReaderSettings,
@@ -34,6 +36,7 @@ export function useEpubRendition({
     if (!containerRef.current || !book?.id) return undefined;
 
     let destroyed = false;
+    let reapplyReaderSettingsToView;
     setIsLoading(true);
     setError('');
     resetPageProgress();
@@ -58,12 +61,21 @@ export function useEpubRendition({
         rendition = epubBook.renderTo(containerRef.current, {
           width: '100%',
           height: '100%',
+          flow: 'paginated',
+          gap: RENDITION_COLUMN_GAP,
           spread: 'none',
         });
         renditionRef.current = rendition;
         rendition.hooks.content.register((contents) => {
           applyReaderSettingsToContents(contents);
         });
+        reapplyReaderSettingsToView = () => {
+          applyReaderSettings(rendition, readerSettingsRef.current);
+          requestAnimationFrame(() => {
+            if (!destroyed) applyReaderSettings(rendition, readerSettingsRef.current);
+          });
+        };
+        rendition.on('rendered', reapplyReaderSettingsToView);
 
         let startCfi;
         let loadedReaderSettings = readerSettingsRef.current;
@@ -135,6 +147,7 @@ export function useEpubRendition({
     return () => {
       destroyed = true;
       flushPendingChanges();
+      renditionRef.current?.off?.('rendered', reapplyReaderSettingsToView);
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
       currentCfiRef.current = null;

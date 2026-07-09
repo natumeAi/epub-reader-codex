@@ -10,6 +10,7 @@ import {
 import {
   addBookFileToLibrary,
   deleteBookById,
+  getBookById,
   getBookFilePath,
   listBooks,
   updateShelfBookOrder,
@@ -115,6 +116,24 @@ router.get('/', (req, res, next) => {
     const books = folderId === undefined ? listBooks(db) : listBooks(db, { folderId });
 
     res.json({ books });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/:id', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    const bookId = parseBookId(req.params.id);
+    const book = getBookById(db, bookId);
+
+    if (!book) {
+      const error = new Error('Book not found');
+      error.status = 404;
+      throw error;
+    }
+
+    res.json({ book });
   } catch (err) {
     next(err);
   }

@@ -19,6 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   createFolderFromBooks,
+  getBook,
   listRecentReading,
   listFolderBooks,
   listShelfItems,
@@ -38,6 +39,34 @@ const shelfSortTransition = {
   easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
 };
 const FOLDER_CLOSE_ANIM_MS = 180;
+const activeReaderBookStorageKey = 'epub-reader.activeBookId';
+
+function readActiveReaderBookId() {
+  try {
+    const value = localStorage.getItem(activeReaderBookStorageKey);
+    const bookId = Number(value);
+
+    return Number.isInteger(bookId) && bookId > 0 ? bookId : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeActiveReaderBookId(bookId) {
+  try {
+    localStorage.setItem(activeReaderBookStorageKey, String(bookId));
+  } catch {
+    // Reading still works when storage is unavailable.
+  }
+}
+
+function clearActiveReaderBookId() {
+  try {
+    localStorage.removeItem(activeReaderBookStorageKey);
+  } catch {
+    // Nothing to clear when storage is unavailable.
+  }
+}
 
 function shelfItemKey(item) {
   return `${item.type}:${item.id}`;
@@ -76,6 +105,20 @@ function normalizeShelfBookFromFolderBook(book) {
     book,
     key: folderBookKey(book),
   };
+}
+
+function findBookInLoadedLibrary(bookId, shelfData, recentData) {
+  const shelfBook = (shelfData.items || [])
+    .find((item) => item.type === 'book' && Number(item.book?.id) === bookId)
+    ?.book;
+
+  if (shelfBook) {
+    return shelfBook;
+  }
+
+  return (recentData.items || [])
+    .find((item) => Number(item.book?.id) === bookId)
+    ?.book || null;
 }
 
 function pointInRect(point, rect) {
@@ -630,6 +673,7 @@ function App() {
   const latestPointerPointRef = useRef(null);
   const pointerTrackingCleanupRef = useRef(null);
   const sortIntentRef = useRef({ startedAt: 0, targetKey: null });
+  const hasTriedReaderRestoreRef = useRef(false);
   const [shelfItems, setShelfItems] = useState([]);
   const [recentReadingItems, setRecentReadingItems] = useState([]);
   const [activeDragPreview, setActiveDragPreview] = useState(null);
@@ -889,6 +933,27 @@ function App() {
 
       setShelfItems((shelfData.items || []).map(normalizeShelfItem));
       setRecentReadingItems(recentData.items || []);
+
+      const activeBookId = readActiveReaderBookId();
+
+      if (activeBookId && !readingBook && !hasTriedReaderRestoreRef.current) {
+        hasTriedReaderRestoreRef.current = true;
+        let bookToRestore = findBookInLoadedLibrary(activeBookId, shelfData, recentData);
+
+        if (!bookToRestore) {
+          try {
+            const data = await getBook(activeBookId);
+            bookToRestore = data.book;
+          } catch {
+            clearActiveReaderBookId();
+          }
+        }
+
+        if (bookToRestore) {
+          setReadingBookOrigin(null);
+          setReadingBook(bookToRestore);
+        }
+      }
     } catch (err) {
       setError(err.message || '无法加载书架');
     } finally {
@@ -899,11 +964,13 @@ function App() {
 
   function handleOpenBook(book, originRect) {
     if (!book || isSavingOrder) return;
+    writeActiveReaderBookId(book.id);
     setReadingBookOrigin(originRect || null);
     setReadingBook(book);
   }
 
   function handleCloseReader() {
+    clearActiveReaderBookId();
     setReadingBook(null);
     setReadingBookOrigin(null);
     loadRecentReading();

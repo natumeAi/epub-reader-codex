@@ -8,6 +8,16 @@ export async function listBooks() {
   return response.json();
 }
 
+export async function getBook(bookId) {
+  const response = await fetch(`/api/books/${bookId}`);
+
+  if (!response.ok) {
+    throw new Error(response.status === 404 ? '书籍不存在' : '无法加载书籍');
+  }
+
+  return response.json();
+}
+
 export async function listShelfItems() {
   const response = await fetch('/api/folders/shelf');
 

@@ -329,6 +329,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const [letterSpacing, setLetterSpacing] = useState(DEFAULT_LETTER_SPACING);
   const [readerThemeId, setReaderThemeId] = useState(DEFAULT_THEME_ID);
   const [hasLoadedReaderSettings, setHasLoadedReaderSettings] = useState(false);
+  const [readerReloadKey, setReaderReloadKey] = useState(0);
   const readerSettingsRef = useRef({
     fontSize: DEFAULT_FONT_SIZE,
     fontFamilyId: DEFAULT_FONT_FAMILY_ID,
@@ -377,10 +378,22 @@ export function ReaderView({ book, originRect, onClose }) {
     }, SETTINGS_SAVE_DEBOUNCE_MS);
   }, [flushReaderSettingsSave]);
 
+  const flushPendingChanges = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    if (settingsSaveTimerRef.current) clearTimeout(settingsSaveTimerRef.current);
+    flushSave(pendingProgressRef.current);
+    flushReaderSettingsSave(pendingReaderSettingsRef.current);
+    pendingProgressRef.current = null;
+    pendingReaderSettingsRef.current = null;
+  }, [flushReaderSettingsSave, flushSave]);
+
   useEffect(() => {
     if (!containerRef.current || !book?.id) return;
 
     let destroyed = false;
+    setIsLoading(true);
+    setError('');
+    setToc([]);
     setHasLoadedReaderSettings(false);
 
     // Standard async IIFE pattern for useEffect
@@ -492,19 +505,69 @@ export function ReaderView({ book, originRect, onClose }) {
 
     return () => {
       destroyed = true;
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      if (settingsSaveTimerRef.current) clearTimeout(settingsSaveTimerRef.current);
-      flushSave(pendingProgressRef.current);
-      flushReaderSettingsSave(pendingReaderSettingsRef.current);
-      pendingProgressRef.current = null;
-      pendingReaderSettingsRef.current = null;
+      flushPendingChanges();
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
       currentCfiRef.current = null;
       bookRef.current = null;
       renditionRef.current = null;
     };
-  }, [book?.id, flushReaderSettingsSave, flushSave, scheduleSave]);
+  }, [book?.id, flushPendingChanges, readerReloadKey, scheduleSave]);
+
+  const recoverVisibleReader = useCallback(() => {
+    if (!book?.id || isClosingRef.current || isLoading || error) return;
+
+    requestAnimationFrame(() => {
+      const container = containerRef.current;
+      const rendition = renditionRef.current;
+
+      if (!container) {
+        return;
+      }
+
+      const hasRenderedFrame = Boolean(container.querySelector('iframe'));
+
+      if (!rendition || !hasRenderedFrame) {
+        setError('');
+        setIsLoading(true);
+        setHasLoadedReaderSettings(false);
+        setReaderReloadKey((key) => key + 1);
+        return;
+      }
+
+      rendition.resize?.();
+
+      if (currentCfiRef.current) {
+        rendition.display(currentCfiRef.current).catch(() => {});
+      }
+    });
+  }, [book?.id, error, isLoading]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      flushPendingChanges();
+    };
+    const handlePageShow = () => {
+      recoverVisibleReader();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        recoverVisibleReader();
+      } else {
+        flushPendingChanges();
+      }
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [flushPendingChanges, recoverVisibleReader]);
 
   useEffect(() => {
     readerSettingsRef.current = {

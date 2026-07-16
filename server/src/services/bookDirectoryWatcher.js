@@ -12,13 +12,15 @@ function logSyncError(action, filePath, error) {
   console.error(`Failed to ${action} EPUB file ${path.resolve(filePath)} [${error.code || 'UNEXPECTED_ERROR'}]`);
 }
 
-export function startBookDirectoryWatcher(db) {
-  ensureBookDirectory();
-  syncBookDirectory(db).catch((err) => {
-    console.error('Failed to sync EPUB directory on startup:', err);
-  });
+export function startBookDirectoryWatcher(db, dependencies = {}) {
+  const addBook = dependencies.addBookFileToLibrary || addBookFileToLibrary;
+  const removeBook = dependencies.removeBookFileFromLibrary || removeBookFileFromLibrary;
+  const syncBooks = dependencies.syncBookDirectory || syncBookDirectory;
+  const watch = dependencies.watch || chokidar.watch;
+  let readySyncStarted = false;
 
-  const watcher = chokidar.watch(booksDir, {
+  ensureBookDirectory();
+  const watcher = watch(booksDir, {
     awaitWriteFinish: {
       stabilityThreshold: 1000,
       pollInterval: 100,
@@ -27,47 +29,46 @@ export function startBookDirectoryWatcher(db) {
   });
 
   watcher.on('add', async (filePath) => {
-    if (isEpubFileName(filePath)) {
-      try {
-        await addBookFileToLibrary(db, filePath);
-      } catch (error) {
-        if (error instanceof InvalidEpubError) removeBookFileFromLibrary(db, filePath);
-        logSyncError('add or update', filePath, error);
-      }
+    if (!isEpubFileName(filePath)) return;
+    try {
+      await addBook(db, filePath);
+    } catch (error) {
+      if (error instanceof InvalidEpubError) removeBook(db, filePath);
+      logSyncError('add', filePath, error);
     }
   });
 
   watcher.on('change', async (filePath) => {
-    if (isEpubFileName(filePath)) {
-      try {
-        await addBookFileToLibrary(db, filePath);
-      } catch (error) {
-        if (error instanceof InvalidEpubError) removeBookFileFromLibrary(db, filePath);
-        logSyncError('add or update', filePath, error);
-      }
+    if (!isEpubFileName(filePath)) return;
+    try {
+      await addBook(db, filePath, { forceRefresh: true });
+    } catch (error) {
+      if (error instanceof InvalidEpubError) removeBook(db, filePath);
+      logSyncError('update', filePath, error);
     }
   });
 
   watcher.on('unlink', (filePath) => {
-    if (isEpubFileName(filePath)) {
-      try {
-        removeBookFileFromLibrary(db, filePath);
-      } catch (err) {
-        logSyncError('remove', filePath, err);
-      }
+    if (!isEpubFileName(filePath)) return;
+    try {
+      removeBook(db, filePath);
+    } catch (error) {
+      logSyncError('remove', filePath, error);
     }
   });
 
   watcher.on('ready', async () => {
+    if (readySyncStarted) return;
+    readySyncStarted = true;
     try {
-      await syncBookDirectory(db);
-    } catch (err) {
-      console.error('Failed to sync EPUB directory on watcher ready:', err);
+      await syncBooks(db);
+    } catch (error) {
+      console.error('Failed to sync EPUB directory on watcher ready:', error);
     }
   });
 
-  watcher.on('error', (err) => {
-    console.error('Book directory watcher error:', err);
+  watcher.on('error', (error) => {
+    console.error('Book directory watcher error:', error);
   });
 
   return watcher;

@@ -28,7 +28,8 @@ export async function uploadBook(file) {
   });
 
   if (!response.ok) {
-    throw new Error('上传失败');
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error || '上传失败');
   }
 
   return response.json();

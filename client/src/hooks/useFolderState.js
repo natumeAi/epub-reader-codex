@@ -4,11 +4,18 @@ import {
   renameFolder,
 } from '../api/foldersApi.js';
 import { normalizeFolderBook } from '../utils/libraryItems.js';
+import { useReducedMotion } from './useReducedMotion.js';
 
 const FOLDER_CLOSE_ANIM_MS = 180;
 
 export function useFolderState({ onFolderRenamed } = {}) {
+  const reducedMotion = useReducedMotion();
   const folderCloseTimeoutRef = useRef(null);
+  const folderRequestRef = useRef({
+    controller: null,
+    folderId: null,
+    requestId: 0,
+  });
   const [openFolder, setOpenFolder] = useState(null);
   const [isFolderClosing, setIsFolderClosing] = useState(false);
   const [folderBooks, setFolderBooks] = useState([]);
@@ -20,7 +27,36 @@ export function useFolderState({ onFolderRenamed } = {}) {
   const [folderError, setFolderError] = useState('');
   const [folderCloseVersion, setFolderCloseVersion] = useState(0);
 
+  const invalidateFolderRequest = useCallback(() => {
+    const current = folderRequestRef.current;
+    current.controller?.abort();
+    folderRequestRef.current = {
+      controller: null,
+      folderId: null,
+      requestId: current.requestId + 1,
+    };
+  }, []);
+
+  const beginFolderRequest = useCallback((folderId) => {
+    invalidateFolderRequest();
+    const controller = new AbortController();
+    const request = {
+      controller,
+      folderId,
+      requestId: folderRequestRef.current.requestId,
+    };
+    folderRequestRef.current = request;
+    return request;
+  }, [invalidateFolderRequest]);
+
+  const isCurrentFolderRequest = useCallback((request) => (
+    folderRequestRef.current.requestId === request.requestId &&
+    folderRequestRef.current.folderId === request.folderId &&
+    folderRequestRef.current.controller === request.controller
+  ), []);
+
   const finishCloseFolder = useCallback(() => {
+    invalidateFolderRequest();
     setOpenFolder(null);
     setIsFolderClosing(false);
     setFolderBooks([]);
@@ -31,7 +67,7 @@ export function useFolderState({ onFolderRenamed } = {}) {
     setIsSavingFolderOrder(false);
     setFolderNameDraft('');
     setFolderCloseVersion((version) => version + 1);
-  }, []);
+  }, [invalidateFolderRequest]);
 
   const handleOpenFolder = useCallback(async (folder, options = {}) => {
     const ignoreUntil = options.ignoreUntil || 0;
@@ -45,6 +81,7 @@ export function useFolderState({ onFolderRenamed } = {}) {
       folderCloseTimeoutRef.current = null;
     }
 
+    const request = beginFolderRequest(folder.id);
     setIsFolderClosing(false);
     setOpenFolder(folder);
     setFolderBooks([]);
@@ -54,26 +91,40 @@ export function useFolderState({ onFolderRenamed } = {}) {
     setIsFolderLoading(true);
 
     try {
-      const data = await listFolderBooks(folder.id);
+      const data = await listFolderBooks(folder.id, { signal: request.controller.signal });
+      if (!isCurrentFolderRequest(request)) return;
       setFolderBooks((data.books || []).map(normalizeFolderBook));
-    } catch (err) {
-      setFolderError(err.message || '无法加载文件夹');
+    } catch (error) {
+      if (error?.name === 'AbortError' || !isCurrentFolderRequest(request)) return;
+      setFolderError(error.message || '无法加载文件夹');
     } finally {
-      setIsFolderLoading(false);
+      if (isCurrentFolderRequest(request)) setIsFolderLoading(false);
     }
-  }, []);
+  }, [beginFolderRequest, isCurrentFolderRequest]);
 
   const handleCloseFolder = useCallback(() => {
     if (isSavingFolderName || isFolderClosing) {
       return;
     }
 
+    invalidateFolderRequest();
     setIsFolderClosing(true);
+    if (reducedMotion) {
+      finishCloseFolder();
+      return;
+    }
+
     folderCloseTimeoutRef.current = setTimeout(() => {
       folderCloseTimeoutRef.current = null;
       finishCloseFolder();
     }, FOLDER_CLOSE_ANIM_MS);
-  }, [finishCloseFolder, isFolderClosing, isSavingFolderName]);
+  }, [
+    finishCloseFolder,
+    invalidateFolderRequest,
+    isFolderClosing,
+    isSavingFolderName,
+    reducedMotion,
+  ]);
 
   const handleStartFolderRename = useCallback(() => {
     if (!openFolder || isSavingFolderName) {
@@ -123,31 +174,29 @@ export function useFolderState({ onFolderRenamed } = {}) {
   );
 
   const refreshOpenFolderBooksOrClose = useCallback(async () => {
-    if (!openFolder) {
-      return;
-    }
+    if (!openFolder) return;
+    const request = beginFolderRequest(openFolder.id);
 
     try {
-      const data = await listFolderBooks(openFolder.id);
+      const data = await listFolderBooks(openFolder.id, { signal: request.controller.signal });
+      if (!isCurrentFolderRequest(request)) return;
       const nextFolderBooks = (data.books || []).map(normalizeFolderBook);
-
-      if (nextFolderBooks.length) {
-        setFolderBooks(nextFolderBooks);
-      } else {
-        finishCloseFolder();
-      }
-    } catch {
+      if (nextFolderBooks.length) setFolderBooks(nextFolderBooks);
+      else finishCloseFolder();
+    } catch (error) {
+      if (error?.name === 'AbortError' || !isCurrentFolderRequest(request)) return;
       finishCloseFolder();
     }
-  }, [finishCloseFolder, openFolder]);
+  }, [beginFolderRequest, finishCloseFolder, isCurrentFolderRequest, openFolder]);
 
   useEffect(
     () => () => {
       if (folderCloseTimeoutRef.current) {
         clearTimeout(folderCloseTimeoutRef.current);
       }
+      invalidateFolderRequest();
     },
-    [],
+    [invalidateFolderRequest],
   );
 
   return {

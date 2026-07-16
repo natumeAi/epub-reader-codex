@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test --test-concurrency=1"
   },
   "dependencies": {
+    "adm-zip": "^0.5.18",
     "better-sqlite3": "^12.11.1",
     "chokidar": "^5.0.0",
     "epub2": "^3.0.2",

@@ -3,3 +3,32 @@
     background: var(--shelf-wood-background);
   }
 }
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-overlay,
+  .reader-overlay *:not(.reader-loading-spinner),
+  .folder-overlay,
+  .folder-overlay *:not(.folder-loading-spinner),
+  .library-home *,
+  .delete-confirm-overlay,
+  .delete-confirm-overlay * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .reader-loading-spinner {
+    animation: spin 0.75s linear infinite;
+  }
+
+  .folder-loading-spinner {
+    animation: folder-loading-spin 0.82s linear infinite;
+  }
+}

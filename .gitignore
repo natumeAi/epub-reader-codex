@@ -12,3 +12,4 @@ server/data/covers/
 
 # Local editor / tooling config
 .claude/
+.worktrees/

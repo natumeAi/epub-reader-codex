@@ -1,12 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const apiTarget = process.env.EPUB_API_URL || 'http://localhost:3000';
+
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://localhost:3000',
-      '/covers': 'http://localhost:3000',
+      '/api': apiTarget,
+      '/covers': apiTarget,
     },
   },
 });

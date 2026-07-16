@@ -1,14 +1,20 @@
 import { formatBook, listBooks } from './bookLibrary.js';
 
 const defaultFolderName = '\u65b0\u5efa\u6587\u4ef6\u5939';
+export const MAX_FOLDER_NAME_LENGTH = 80;
 
-function normalizeFolderName(name) {
-  if (typeof name !== 'string') {
-    return defaultFolderName;
+export function normalizeFolderName(name) {
+  if (typeof name !== 'string') return defaultFolderName;
+  const normalizedName = name.trim() || defaultFolderName;
+
+  if (normalizedName.length > MAX_FOLDER_NAME_LENGTH) {
+    const error = new Error('Folder name must be 80 characters or fewer');
+    error.status = 400;
+    error.code = 'INVALID_FOLDER_NAME';
+    throw error;
   }
 
-  const trimmedName = name.trim();
-  return trimmedName || defaultFolderName;
+  return normalizedName;
 }
 
 function folderPreviewBooks(db, folderId) {
@@ -52,17 +58,41 @@ export function getFolder(db, folderId) {
 }
 
 export function listFolders(db) {
-  return db
-    .prepare(
-      `SELECT f.*,
-              COUNT(b.id) AS book_count
-       FROM folders f
-       LEFT JOIN books b ON b.folder_id = f.id
-       GROUP BY f.id
-       ORDER BY f.sort_order ASC, f.id ASC`,
-    )
-    .all()
-    .map((row) => formatFolder(row, folderPreviewBooks(db, row.id)));
+  const folderRows = db.prepare(`
+    SELECT f.*,
+           COUNT(b.id) AS book_count
+    FROM folders f
+    LEFT JOIN books b ON b.folder_id = f.id
+    GROUP BY f.id
+    ORDER BY f.sort_order ASC, f.id ASC
+  `).all();
+
+  const previewRows = db.prepare(`
+    SELECT *
+    FROM (
+      SELECT b.*,
+             ROW_NUMBER() OVER (
+               PARTITION BY b.folder_id
+               ORDER BY b.sort_order ASC, b.id ASC
+             ) AS preview_rank
+      FROM books b
+      WHERE b.folder_id IS NOT NULL
+    ) ranked_books
+    WHERE preview_rank <= 4
+    ORDER BY folder_id ASC, sort_order ASC, id ASC
+  `).all();
+
+  const previewsByFolderId = new Map();
+  for (const row of previewRows) {
+    const previews = previewsByFolderId.get(row.folder_id) || [];
+    previews.push(formatBook(row));
+    previewsByFolderId.set(row.folder_id, previews);
+  }
+
+  return folderRows.map((row) => formatFolder(
+    row,
+    previewsByFolderId.get(row.id) || [],
+  ));
 }
 
 export function listShelfItems(db) {

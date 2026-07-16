@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable';
+import { useModalDialog } from '../../hooks/useModalDialog.js';
 import { SortableFolderBook } from './SortableFolderBook.jsx';
 
 export function FolderOverlay({
@@ -18,6 +20,13 @@ export function FolderOverlay({
   onRenameSubmit,
   renameDraft,
 }) {
+  const initialFocusRef = useRef(null);
+  const { dialogRef, onKeyDown } = useModalDialog({
+    initialFocusRef,
+    onRequestClose: onClose,
+    open: Boolean(folder),
+  });
+
   if (!folder) {
     return null;
   }
@@ -26,8 +35,16 @@ export function FolderOverlay({
   const overlayClassName = `folder-overlay${isClosing ? ' is-closing' : ''}`;
 
   return (
-    <div className={overlayClassName} role="dialog" aria-modal="true" aria-labelledby="folder-overlay-title">
-      <button className="folder-backdrop" type="button" aria-label="关闭文件夹" onClick={onClose} />
+    <div
+      ref={dialogRef}
+      className={overlayClassName}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="folder-overlay-title"
+      onKeyDown={onKeyDown}
+      tabIndex={-1}
+    >
+      <div className="folder-backdrop" aria-hidden="true" onClick={onClose} />
       <section className="folder-panel">
         <header className="folder-panel-header">
           {isRenaming ? (
@@ -37,6 +54,7 @@ export function FolderOverlay({
               </h2>
               <form className="folder-rename-form" onSubmit={onRenameSubmit}>
                 <input
+                  ref={initialFocusRef}
                   autoFocus
                   className="folder-rename-input"
                   disabled={isRenameSaving}
@@ -45,6 +63,7 @@ export function FolderOverlay({
                   onKeyDown={(event) => {
                     if (event.key === 'Escape') {
                       event.preventDefault();
+                      event.stopPropagation();
                       onRenameCancel();
                     }
                   }}
@@ -73,7 +92,12 @@ export function FolderOverlay({
             </div>
           ) : (
             <h2 id="folder-overlay-title">
-              <button className="folder-title-button" type="button" onClick={onRenameStart}>
+              <button
+                ref={initialFocusRef}
+                className="folder-title-button"
+                type="button"
+                onClick={onRenameStart}
+              >
                 {folderName}
               </button>
             </h2>

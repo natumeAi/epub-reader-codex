@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEpubRendition } from '../../hooks/useEpubRendition.js';
+import { useModalDialog } from '../../hooks/useModalDialog.js';
 import { usePageProgress } from '../../hooks/usePageProgress.js';
 import { useReadingProgressPersistence } from '../../hooks/useReadingProgressPersistence.js';
 import { useReaderSettings } from '../../hooks/useReaderSettings.js';
@@ -133,6 +134,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const containerRef = useRef(null);
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
+  const readerInitialFocusRef = useRef(null);
   const pointerRef = useRef(null);
   const animatingRef = useRef(false);
   const currentCfiRef = useRef(null);
@@ -288,6 +290,12 @@ export function ReaderView({ book, originRect, onClose }) {
     }
   }, [book?.id, flushProgress, onClose]);
 
+  const { dialogRef, onKeyDown: onDialogKeyDown } = useModalDialog({
+    initialFocusRef: readerInitialFocusRef,
+    onRequestClose: handleCloseClick,
+    open: true,
+  });
+
   const turnPage = useCallback(async (dir) => {
     const rendition = renditionRef.current;
     if (!rendition || animatingRef.current) return;
@@ -414,6 +422,10 @@ export function ReaderView({ book, originRect, onClose }) {
 
   return (
     <div
+      ref={(node) => {
+        dialogRef.current = node;
+        readerInitialFocusRef.current = node;
+      }}
       className={[
         'reader-overlay',
         `reader-theme-${readerThemeId}`,
@@ -425,6 +437,8 @@ export function ReaderView({ book, originRect, onClose }) {
       role="dialog"
       aria-modal="true"
       aria-label={`正在阅读：${book?.title || '书籍'}`}
+      onKeyDown={onDialogKeyDown}
+      tabIndex={-1}
     >
       <ReaderTopBar
         onClose={handleCloseClick}

@@ -4,6 +4,7 @@ import { useModalDialog } from '../../hooks/useModalDialog.js';
 import { usePageProgress } from '../../hooks/usePageProgress.js';
 import { useReadingProgressPersistence } from '../../hooks/useReadingProgressPersistence.js';
 import { useReaderSettings } from '../../hooks/useReaderSettings.js';
+import { useReducedMotion } from '../../hooks/useReducedMotion.js';
 import { ReaderBottomBar } from './ReaderBottomBar.jsx';
 import { ReaderSettingsPanel } from './ReaderSettingsPanel.jsx';
 import { ReaderTopBar } from './ReaderTopBar.jsx';
@@ -131,6 +132,7 @@ function rectToTransformString(rect) {
 }
 
 export function ReaderView({ book, originRect, onClose }) {
+  const reducedMotion = useReducedMotion();
   const containerRef = useRef(null);
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
@@ -153,10 +155,12 @@ export function ReaderView({ book, originRect, onClose }) {
   // Open/close FLIP animation state: the overlay transform collapses onto (or
   // expands from) the shelf cover rect captured at click time.
   const [flipTransform, setFlipTransform] = useState(() => (
-    originRect ? rectToTransformString(originRect) : null
+    originRect && !reducedMotion ? rectToTransformString(originRect) : null
   ));
   const [flipTransitionEnabled, setFlipTransitionEnabled] = useState(false);
-  const [coverOpacity, setCoverOpacity] = useState(() => (originRect ? 1 : 0));
+  const [coverOpacity, setCoverOpacity] = useState(() => (
+    originRect && !reducedMotion ? 1 : 0
+  ));
   const [isFallbackClosing, setIsFallbackClosing] = useState(false);
 
   const {
@@ -242,6 +246,7 @@ export function ReaderView({ book, originRect, onClose }) {
   // Expand from the shelf cover rect (captured at click time) to full screen.
   // Skips animating entirely if no origin rect was captured.
   useEffect(() => {
+    if (reducedMotion) return undefined;
     if (!originRectRef.current) return undefined;
 
     let raf1 = null;
@@ -263,12 +268,16 @@ export function ReaderView({ book, originRect, onClose }) {
       if (raf2) cancelAnimationFrame(raf2);
       clearTimeout(timer);
     };
-  }, []);
+  }, [reducedMotion]);
 
   const handleCloseClick = useCallback(() => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
     void flushProgress({ keepalive: true });
+    if (reducedMotion) {
+      onClose();
+      return;
+    }
 
     const targetEl = book?.id
       ? document.querySelector(`[data-book-id="${book.id}"] .book-cover`)
@@ -288,7 +297,7 @@ export function ReaderView({ book, originRect, onClose }) {
       setIsFallbackClosing(true);
       setTimeout(onClose, READER_FALLBACK_ANIM_MS);
     }
-  }, [book?.id, flushProgress, onClose]);
+  }, [book?.id, flushProgress, onClose, reducedMotion]);
 
   const { dialogRef, onKeyDown: onDialogKeyDown } = useModalDialog({
     initialFocusRef: readerInitialFocusRef,
@@ -305,6 +314,18 @@ export function ReaderView({ book, originRect, onClose }) {
     try {
       const currentLocation = await getCurrentLocation(rendition).catch(() => null);
       if (isAtPageBoundary(currentLocation, dir)) return;
+
+      if (reducedMotion) {
+        const relocated = waitForRelocated(rendition, PAGE_NAV_TIMEOUT_MS);
+        Promise.resolve(nav()).catch(() => {});
+        await relocated;
+        schedulePageTurnFollowUp(() => {
+          if (renditionRef.current === rendition && !isClosingRef.current) {
+            applyReaderSettings(rendition, readerSettingsRef.current);
+          }
+        });
+        return;
+      }
 
       setPageTurn({ dir, phase: 'out', key: Date.now() });
       await waitForNextPaint();
@@ -333,7 +354,7 @@ export function ReaderView({ book, originRect, onClose }) {
       setPageTurn(null);
       animatingRef.current = false;
     }
-  }, [applyReaderSettings, containerRef, readerSettingsRef, renditionRef]);
+  }, [applyReaderSettings, containerRef, readerSettingsRef, reducedMotion, renditionRef]);
 
   const goPrev = useCallback(() => turnPage('prev'), [turnPage]);
   const goNext = useCallback(() => turnPage('next'), [turnPage]);
@@ -454,7 +475,7 @@ export function ReaderView({ book, originRect, onClose }) {
           aria-hidden="true"
           style={{
             opacity: coverOpacity,
-            transitionDuration: `${READER_COVER_FADE_MS}ms`,
+            transitionDuration: `${reducedMotion ? 0 : READER_COVER_FADE_MS}ms`,
           }}
         />
       )}

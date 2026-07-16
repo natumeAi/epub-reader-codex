@@ -392,13 +392,9 @@ function applyReaderHorizontalMarginStylesToRendition(rendition, horizontalMargi
 }
 
 async function applyReaderHorizontalMarginToRendition(rendition, horizontalMargin, cfi) {
-  const manager = rendition?.manager;
-  const layout = rendition?._layout;
-  if (!manager || !layout) return;
+  if (!rendition) return;
 
-  manager.settings.gap = READER_COLUMN_GAP;
   rendition.resize?.();
-  manager.updateLayout?.();
   applyReaderHorizontalMarginStylesToRendition(rendition, horizontalMargin);
 
   if (cfi) {

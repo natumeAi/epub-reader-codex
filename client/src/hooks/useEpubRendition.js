@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Epub from 'epubjs';
 import { getReadingProgress } from '../api/readingApi.js';
+import { createEpubPageTurnAdapter } from '../utils/epubPageTurnAdapter.js';
 import { selectProgressForRelocation } from '../utils/readingProgress.js';
 
 const RENDITION_COLUMN_GAP = 0;
@@ -32,13 +33,20 @@ export function useEpubRendition({
   const [toc, setToc] = useState([]);
   const [currentHref, setCurrentHref] = useState(null);
   const [readerReloadKey, setReaderReloadKey] = useState(0);
+  const [pageTurnAdapter, setPageTurnAdapter] = useState(null);
+  const pageTurnAdapterRef = useRef(null);
 
   useEffect(() => {
     if (!containerRef.current || !book?.id) return undefined;
 
+    pageTurnAdapterRef.current?.destroy();
+    pageTurnAdapterRef.current = null;
+    setPageTurnAdapter(null);
+
     let destroyed = false;
     let handleRelocated;
     let reapplyReaderSettingsToView;
+    let adapter = null;
     setIsLoading(true);
     setError('');
     resetPageProgress();
@@ -63,9 +71,11 @@ export function useEpubRendition({
         rendition = epubBook.renderTo(containerRef.current, {
           width: '100%',
           height: '100%',
+          manager: 'continuous',
           flow: 'paginated',
           gap: RENDITION_COLUMN_GAP,
           spread: 'none',
+          snap: true,
         });
         renditionRef.current = rendition;
         rendition.hooks.content.register((contents) => {
@@ -116,6 +126,7 @@ export function useEpubRendition({
         }
 
         const updateFromLocation = (location) => {
+          if (adapter && !adapter.isStableAligned()) return;
           if (destroyed || !location?.start?.cfi) return;
           const cfi = location.start.cfi;
           const progressValue = selectProgressForRelocation({
@@ -149,6 +160,9 @@ export function useEpubRendition({
         );
 
         if (destroyed) return;
+        adapter = createEpubPageTurnAdapter(rendition);
+        pageTurnAdapterRef.current = adapter;
+        setPageTurnAdapter(adapter);
         markReaderSettingsLoaded();
         setIsLoading(false);
 
@@ -181,6 +195,10 @@ export function useEpubRendition({
       flushPendingReaderSettings();
       renditionRef.current?.off?.('relocated', handleRelocated);
       renditionRef.current?.off?.('rendered', reapplyReaderSettingsToView);
+      adapter?.destroy();
+      if (pageTurnAdapterRef.current === adapter) {
+        pageTurnAdapterRef.current = null;
+      }
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
       currentCfiRef.current = null;
@@ -213,6 +231,7 @@ export function useEpubRendition({
     if (!book?.id || isClosingRef.current || isLoading || error) return;
 
     requestAnimationFrame(() => {
+      pageTurnAdapterRef.current?.cancel({ restoreOrigin: true });
       const container = containerRef.current;
       const rendition = renditionRef.current;
 
@@ -277,6 +296,7 @@ export function useEpubRendition({
 
   return {
     currentHref,
+    pageTurnAdapter,
     progress,
     toc,
   };

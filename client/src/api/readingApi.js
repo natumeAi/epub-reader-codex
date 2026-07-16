@@ -18,15 +18,23 @@ export async function listRecentReading() {
   return response.json();
 }
 
-export async function saveReadingProgress(bookId, { cfi, progress, chapterHref, chapterLabel }) {
+export async function saveReadingProgress(
+  bookId,
+  { cfi, progress, chapterHref, chapterLabel },
+  options = {},
+) {
   const response = await fetch(`/api/reading/${bookId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cfi, progress, chapterHref, chapterLabel }),
+    keepalive: Boolean(options.keepalive),
+    signal: options.signal,
   });
 
   if (!response.ok) {
-    throw new Error('无法保存阅读进度');
+    const error = new Error('无法保存阅读进度');
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();

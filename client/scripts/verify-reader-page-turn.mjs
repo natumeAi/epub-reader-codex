@@ -43,6 +43,7 @@ async function readScroll(page) {
     if (!scroller) throw new Error('epub.js horizontal scroller not found');
     return {
       left: scroller.scrollLeft,
+      width: scroller.clientWidth,
       sheetRemoved: !document.querySelector('.reader-page-turn-sheet'),
       edgeOpacity: Number(getComputedStyle(
         document.querySelector('.reader-page-edge'),
@@ -134,6 +135,26 @@ try {
     }));
   }
 
+  const exactStart = await label(page);
+  const exactScroll = await readScroll(page);
+  const exactFromX = Math.min(350, exactScroll.width + 20);
+  const exactToX = exactFromX - exactScroll.width;
+  await drag(page, {
+    fromX: exactFromX,
+    toX: exactToX,
+    holdMs: 250,
+  });
+  const exactPage = await label(page);
+  const exactPhaseClass = await page.locator('.reader-overlay').getAttribute('class');
+  if (
+    exactPage.current !== exactStart.current + 1 ||
+    exactPhaseClass?.includes('reader-page-turn-basic')
+  ) {
+    throw new Error('Exact-page drag failed: ' + JSON.stringify({
+      exactStart, exactScroll, exactPage, exactPhaseClass,
+    }));
+  }
+
   const fastStart = await label(page);
   await drag(page, { fromX: 300, toX: 250, holdMs: 20 });
   const fastSwipePage = await label(page);
@@ -172,6 +193,7 @@ try {
   console.log(JSON.stringify({
     normalPage,
     rollbackPage,
+    exactPage,
     fastSwipePage,
     reducedMotionPage,
     sheetRemoved: normalMid.sheetRemoved,

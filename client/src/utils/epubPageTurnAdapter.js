@@ -230,6 +230,8 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     const startLogical = readLogical();
     const startBoundaryOffset = session.boundaryOffset;
     const destination = session.origin + pageDelta * session.pageWidth;
+    const startsAtDestination = pageDelta !== 0 &&
+      Math.abs(startLogical - destination) <= ALIGNMENT_EPSILON_PX;
 
     return new Promise((resolve) => {
       const tick = () => {
@@ -261,6 +263,32 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
           return;
         }
 
+        if (startsAtDestination) {
+          const reportLocation = rendition?.reportLocation;
+          if (typeof reportLocation !== 'function') {
+            animation = null;
+            resolve({ status: 'unavailable' });
+            return;
+          }
+
+          const activeAnimation = animation;
+          Promise.resolve()
+            .then(() => reportLocation.call(rendition))
+            .then(
+              () => {
+                if (animation !== activeAnimation) return;
+                animation = null;
+                resolve({ status: 'completed' });
+              },
+              () => {
+                if (animation !== activeAnimation) return;
+                animation = null;
+                resolve({ status: 'unavailable' });
+              },
+            );
+          return;
+        }
+
         animation = null;
         resolve({ status: 'completed' });
       };
@@ -276,8 +304,12 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     const stableCfi = session?.stableCfi;
     cancel({ restoreOrigin: true });
     if (!stableCfi || typeof rendition?.display !== 'function') return false;
-    await rendition.display(stableCfi);
-    return true;
+    try {
+      await rendition.display(stableCfi);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   function cancel(options = {}) {

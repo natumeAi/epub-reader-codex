@@ -27,7 +27,11 @@ function createRendition(overrides = {}) {
     snapper: {},
   };
   return {
-    rendition: { manager, display: vi.fn().mockResolvedValue(undefined) },
+    rendition: {
+      manager,
+      display: vi.fn().mockResolvedValue(undefined),
+      reportLocation: vi.fn(),
+    },
     manager,
     scroller,
     ...overrides,
@@ -223,4 +227,48 @@ it('cancels rAF, restores inline styles, and recovers the stable CFI', async () 
 
   adapter.destroy();
   expect(adapter.begin('later-cfi')).toBeNull();
+});
+
+it('reports the stable location when animation starts at the target page', async () => {
+  const fixture = createRendition();
+  const frames = createFrameDriver();
+  const adapter = createEpubPageTurnAdapter(fixture.rendition, frames.environment);
+  adapter.begin('stable-cfi');
+  fixture.scroller.scrollLeft = 200;
+
+  const settling = adapter.animateTo(1, { duration: 120 });
+  frames.step(0);
+  frames.step(120);
+
+  await expect(settling).resolves.toEqual({ status: 'completed' });
+  expect(fixture.rendition.reportLocation).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ['missing', (rendition) => { rendition.reportLocation = undefined; }],
+  ['failing', (rendition) => {
+    rendition.reportLocation.mockRejectedValue(new Error('report failed'));
+  }],
+])('returns unavailable when exact-target reporting is %s', async (_name, mutate) => {
+  const fixture = createRendition();
+  mutate(fixture.rendition);
+  const frames = createFrameDriver();
+  const adapter = createEpubPageTurnAdapter(fixture.rendition, frames.environment);
+  adapter.begin('stable-cfi');
+  fixture.scroller.scrollLeft = 200;
+
+  const settling = adapter.animateTo(1, { duration: 120 });
+  frames.step(0);
+  frames.step(120);
+
+  await expect(settling).resolves.toEqual({ status: 'unavailable' });
+});
+
+it('returns false when stable CFI recovery display fails', async () => {
+  const fixture = createRendition();
+  fixture.rendition.display.mockRejectedValue(new Error('display failed'));
+  const adapter = createEpubPageTurnAdapter(fixture.rendition);
+  adapter.begin('stable-cfi');
+
+  await expect(adapter.recover()).resolves.toBe(false);
 });

@@ -62,3 +62,5 @@ jobs:
         working-directory: client
       - run: npm run verify:reader-progress
         working-directory: client
+      - run: npm run verify:reader-accessibility
+        working-directory: client

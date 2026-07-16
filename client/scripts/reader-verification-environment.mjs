@@ -80,7 +80,7 @@ function browserLaunchOptions() {
   return executablePath ? { executablePath, headless: true } : { headless: true };
 }
 
-export async function prepareReaderVerification() {
+export async function prepareReaderVerification(options = {}) {
   const externalAppUrl = process.env.APP_URL;
 
   if (externalAppUrl) {
@@ -88,6 +88,7 @@ export async function prepareReaderVerification() {
       appUrl: externalAppUrl,
       browserOptions: browserLaunchOptions(),
       cleanup: async () => {},
+      diagnostics: () => '',
       screenshotPath: process.env.SCREENSHOT_PATH || path.join(tmpdir(), `reader-mobile-${process.pid}.png`),
     };
   }
@@ -102,12 +103,18 @@ export async function prepareReaderVerification() {
   const appUrl = `http://127.0.0.1:${clientPort}/`;
   const screenshotPath = process.env.SCREENSHOT_PATH || path.join(rootDir, 'reader-settings-narrow.png');
   const children = [];
+  const fixtureCount = Number.isInteger(options.fixtureCount)
+    ? Math.max(1, options.fixtureCount)
+    : 1;
 
   mkdirSync(booksDir, { recursive: true });
-  createEpubFixture(path.join(booksDir, 'Mobile Fixture.epub'), {
-    title: 'Mobile Fixture',
-    paragraphCount: 80,
-  });
+  for (let index = 1; index <= fixtureCount; index += 1) {
+    const suffix = index === 1 ? '' : ` ${index}`;
+    createEpubFixture(path.join(booksDir, `Mobile Fixture${suffix}.epub`), {
+      title: `Mobile Fixture${suffix}`,
+      paragraphCount: 80,
+    });
+  }
 
   const serverChild = startNode(path.join(serverRoot, 'src', 'index.js'), [], {
     cwd: serverRoot,
@@ -142,7 +149,11 @@ export async function prepareReaderVerification() {
 
   try {
     await waitFor(`${serverUrl}/api/health`, (body) => body?.database === 'ok', diagnostics);
-    await waitFor(`${serverUrl}/api/folders/shelf`, (body) => body?.items?.length === 1, diagnostics);
+    await waitFor(
+      `${serverUrl}/api/folders/shelf`,
+      (body) => body?.items?.length === fixtureCount,
+      diagnostics,
+    );
     await waitFor(appUrl, () => true, diagnostics);
   } catch (error) {
     await cleanup();
@@ -153,6 +164,7 @@ export async function prepareReaderVerification() {
     appUrl,
     browserOptions: browserLaunchOptions(),
     cleanup,
+    diagnostics,
     screenshotPath,
   };
 }

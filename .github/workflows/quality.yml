@@ -38,6 +38,7 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - run: npm ci
       - run: npm test
+      - run: npm audit --omit=dev
       - run: npm run build
 
   mobile:

@@ -20,7 +20,7 @@ function isVisible(element) {
 
   for (let current = element; current instanceof HTMLElement; current = current.parentElement) {
     const style = window.getComputedStyle(current);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+    if (style.display === 'none' || style.visibility === 'hidden') {
       return false;
     }
   }
@@ -47,7 +47,7 @@ export function useModalDialog({
       const dialog = dialogRef.current;
       if (!dialog) return;
       const initialTarget = initialFocusRef?.current;
-      const target = initialTarget && isVisible(initialTarget)
+      const target = initialTarget && !initialTarget.matches(':disabled') && isVisible(initialTarget)
         ? initialTarget
         : focusableElements(dialog)[0] || dialog;
       target.focus();

@@ -2,12 +2,7 @@ import { chromium } from 'playwright';
 import { prepareReaderVerification } from './reader-verification-environment.mjs';
 
 const environment = await prepareReaderVerification();
-const browser = await chromium.launch(environment.browserOptions);
-const page = await browser.newPage({
-  viewport: { width: 375, height: 667 },
-  isMobile: true,
-  hasTouch: true,
-});
+let browser;
 
 async function readProgress(bookId) {
   const response = await fetch(new URL(`/api/reading/${bookId}`, environment.appUrl));
@@ -16,6 +11,13 @@ async function readProgress(bookId) {
 }
 
 try {
+  browser = await chromium.launch(environment.browserOptions);
+  const page = await browser.newPage({
+    viewport: { width: 375, height: 667 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
   await page.goto(environment.appUrl, { waitUntil: 'networkidle', timeout: 30000 });
   const bookButton = page.locator('.continue-book-button[data-book-id], button.book-shell[data-book-id]').first();
   const bookId = Number(await bookButton.getAttribute('data-book-id'));
@@ -67,6 +69,9 @@ try {
     uiLabel: label.trim(),
   }, null, 2));
 } finally {
-  await browser.close();
-  await environment.cleanup();
+  try {
+    await browser?.close();
+  } finally {
+    await environment.cleanup();
+  }
 }

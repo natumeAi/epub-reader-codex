@@ -3,7 +3,7 @@ import { useRef } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useModalDialog } from './useModalDialog.js';
 
-function Harness({ onClose, open }) {
+function Harness({ dialogStyle, onClose, open }) {
   const firstRef = useRef(null);
   const { dialogRef, onKeyDown } = useModalDialog({
     initialFocusRef: firstRef,
@@ -13,7 +13,13 @@ function Harness({ onClose, open }) {
 
   if (!open) return null;
   return (
-    <div ref={dialogRef} onKeyDown={onKeyDown} role="dialog" tabIndex={-1}>
+    <div
+      ref={dialogRef}
+      onKeyDown={onKeyDown}
+      role="dialog"
+      style={dialogStyle}
+      tabIndex={-1}
+    >
       <button ref={firstRef} type="button">First</button>
       <button type="button">Last</button>
     </div>
@@ -50,5 +56,11 @@ describe('useModalDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     rerender(<><button type="button">Trigger</button><Harness onClose={onClose} open={false} /></>);
     expect(screen.getByRole('button', { name: 'Trigger' })).toHaveFocus();
+  });
+
+  it('focuses the requested target during a transparent entry frame', () => {
+    render(<Harness dialogStyle={{ opacity: 0 }} onClose={vi.fn()} open />);
+
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
   });
 });

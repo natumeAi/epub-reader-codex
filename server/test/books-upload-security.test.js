@@ -44,6 +44,9 @@ test('invalid and valid uploads leave exactly the expected resources', async (t)
   `);
   const failedAfterMove = await upload(baseUrl, fixturePath, 'Rollback.epub');
   assert.equal(failedAfterMove.status, 500);
+  assert.deepEqual(await failedAfterMove.json(), {
+    error: 'Internal Server Error',
+  });
   environment.db.exec('DROP TRIGGER reject_book_insert');
   assert.equal(environment.db.prepare('SELECT COUNT(*) AS value FROM books').get().value, 0);
   assert.deepEqual(readdirSync(storage.stagingDir), []);

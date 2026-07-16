@@ -2,8 +2,7 @@ import { chromium } from 'playwright';
 import { prepareReaderVerification } from './reader-verification-environment.mjs';
 
 const environment = await prepareReaderVerification({ fixtureCount: 2 });
-const browser = await chromium.launch(environment.browserOptions);
-const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+let browser;
 
 async function readJson(response, label) {
   const body = await response.text();
@@ -18,6 +17,9 @@ async function readJson(response, label) {
 }
 
 try {
+  browser = await chromium.launch(environment.browserOptions);
+  const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(environment.appUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -74,6 +76,9 @@ try {
     { cause: error },
   );
 } finally {
-  await browser.close();
-  await environment.cleanup();
+  try {
+    await browser?.close();
+  } finally {
+    await environment.cleanup();
+  }
 }

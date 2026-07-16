@@ -22,6 +22,7 @@ export function useReadingProgressPersistence({
   const memoryOutboxRef = useRef({});
   const storageUnavailableRef = useRef(false);
   const workerRef = useRef(null);
+  const flushRequestedRef = useRef(false);
   const keepaliveRequestedRef = useRef(false);
   const saveProgressRef = useRef(saveProgress);
 
@@ -45,8 +46,10 @@ export function useReadingProgressPersistence({
 
   const flushProgress = useCallback((options = {}) => {
     if (options.keepalive) keepaliveRequestedRef.current = true;
+    flushRequestedRef.current = true;
     if (workerRef.current) return workerRef.current;
     if (!nextRecord(readRecords(), bookId)) {
+      flushRequestedRef.current = false;
       keepaliveRequestedRef.current = false;
       return Promise.resolve();
     }
@@ -57,6 +60,7 @@ export function useReadingProgressPersistence({
         const snapshot = nextRecord(records, bookId);
         if (!snapshot) return;
 
+        flushRequestedRef.current = false;
         const keepalive = keepaliveRequestedRef.current;
         keepaliveRequestedRef.current = false;
 
@@ -87,7 +91,9 @@ export function useReadingProgressPersistence({
 
     workerRef.current = worker;
     worker.finally(() => {
-      if (workerRef.current === worker) workerRef.current = null;
+      if (workerRef.current !== worker) return;
+      workerRef.current = null;
+      if (flushRequestedRef.current) void flushProgress();
     });
     return worker;
   }, [bookId, readRecords, replaceRecords]);
@@ -106,18 +112,21 @@ export function useReadingProgressPersistence({
   useEffect(() => {
     const handlePageHide = () => { void flushProgress({ keepalive: true }); };
     const handlePageShow = () => { void retryPendingProgress(); };
+    const handleOnline = () => { void retryPendingProgress(); };
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') void retryPendingProgress();
     };
 
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('online', handleOnline);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     void retryPendingProgress();
 
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [flushProgress, retryPendingProgress]);

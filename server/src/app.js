@@ -65,7 +65,7 @@ export function createApp({ db } = {}) {
     const body = {
       error: status === 500 ? 'Internal Server Error' : err.message,
     };
-    if (err.code) body.code = err.code;
+    if (status < 500 && err.code) body.code = err.code;
     res.status(status).json(body);
   });
 

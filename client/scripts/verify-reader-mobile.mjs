@@ -4,14 +4,16 @@ import { prepareReaderVerification } from './reader-verification-environment.mjs
 const environment = await prepareReaderVerification();
 const APP_URL = environment.appUrl;
 const SCREENSHOT_PATH = environment.screenshotPath;
-const browser = await chromium.launch(environment.browserOptions);
-const page = await browser.newPage({
-  viewport: { width: 375, height: 667 },
-  isMobile: true,
-  hasTouch: true,
-});
+let browser;
 
 try {
+  browser = await chromium.launch(environment.browserOptions);
+  const page = await browser.newPage({
+    viewport: { width: 375, height: 667 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
   await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 30000 });
   const firstBook = page.locator('.continue-book-button[data-book-id], button.book-shell[data-book-id]').first();
   await firstBook.waitFor({ timeout: 10000 });
@@ -134,6 +136,9 @@ try {
     screenshot: SCREENSHOT_PATH,
   }, null, 2));
 } finally {
-  await browser.close();
-  await environment.cleanup();
+  try {
+    await browser?.close();
+  } finally {
+    await environment.cleanup();
+  }
 }

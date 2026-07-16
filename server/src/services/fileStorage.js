@@ -6,8 +6,11 @@ import multer from 'multer';
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(currentDir, '..', '..');
 
-export const booksDir = path.join(serverRoot, 'data', 'books');
-export const coversDir = path.join(serverRoot, 'data', 'covers');
+export const dataDir = process.env.EPUB_DATA_DIR
+  ? path.resolve(process.env.EPUB_DATA_DIR)
+  : path.join(serverRoot, 'data');
+export const booksDir = path.join(dataDir, 'books');
+export const coversDir = path.join(dataDir, 'covers');
 
 export function ensureBookDirectory() {
   mkdirSync(booksDir, { recursive: true });
@@ -80,9 +83,33 @@ export function titleFromUpload(file) {
 }
 
 export function toStoredPath(filePath) {
-  return path.relative(serverRoot, filePath).replaceAll(path.sep, '/');
+  const absolutePath = path.resolve(filePath);
+  const relativePath = path.relative(dataDir, absolutePath);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    const error = new Error('Storage path is outside EPUB_DATA_DIR');
+    error.status = 500;
+    throw error;
+  }
+
+  return `data/${relativePath.replaceAll(path.sep, '/')}`;
 }
 
 export function toAbsoluteStoragePath(storedPath) {
-  return path.join(serverRoot, storedPath);
+  if (!storedPath?.startsWith('data/')) {
+    const error = new Error('Stored path is outside EPUB_DATA_DIR');
+    error.status = 500;
+    throw error;
+  }
+
+  const absolutePath = path.resolve(dataDir, storedPath.slice('data/'.length));
+  const relativePath = path.relative(dataDir, absolutePath);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    const error = new Error('Stored path is outside EPUB_DATA_DIR');
+    error.status = 500;
+    throw error;
+  }
+
+  return absolutePath;
 }

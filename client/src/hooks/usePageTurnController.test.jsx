@@ -136,6 +136,42 @@ describe('usePageTurnController navigation', () => {
     expect(result.current.phase).toBe('basic');
     expect(harness.rendition.next).not.toHaveBeenCalled();
   });
+
+  it('enters basic without rejecting when stable CFI recovery fails', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    harness.adapter.animateTo.mockResolvedValue({ status: 'completed' });
+    harness.adapter.recover.mockRejectedValue(new Error('display failed'));
+    const { result } = renderHook(() => usePageTurnController(harness));
+    await act(async () => { await Promise.resolve(); });
+
+    let outcome;
+    await act(async () => {
+      const navigation = result.current.turnPage('next');
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1200);
+      outcome = await navigation;
+    });
+
+    expect(outcome).toBe('failed');
+    expect(result.current.phase).toBe('basic');
+  });
+
+  it('recovers immediately when enhanced navigation becomes unavailable', async () => {
+    const harness = createHarness();
+    harness.adapter.animateTo.mockResolvedValue({ status: 'unavailable' });
+    const { result } = renderHook(() => usePageTurnController(harness));
+    await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.turnPage('next');
+    });
+
+    expect(outcome).toBe('failed');
+    expect(harness.adapter.recover).toHaveBeenCalledTimes(1);
+    expect(result.current.phase).toBe('basic');
+  });
 });
 
 function pointerEvent(overrides = {}) {
@@ -333,4 +369,17 @@ it('does not continue enhanced settling after reduced motion cancels capability'
 
   expect(harness.adapter.recover).not.toHaveBeenCalled();
   expect(result.current.phase).toBe('basic');
+});
+
+it('does not recover when enhanced touch settling is cancelled', async () => {
+  const harness = createHarness();
+  harness.adapter.animateTo.mockResolvedValue({ status: 'cancelled' });
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  await startEnhancedTouch(result);
+  await waitFor(() => expect(result.current.phase).not.toBe('settling'));
+
+  expect(harness.adapter.recover).not.toHaveBeenCalled();
+  expect(result.current.phase).toBe('idle');
 });

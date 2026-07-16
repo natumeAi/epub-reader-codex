@@ -158,6 +158,37 @@ it('settles exactly one page and rolls back exactly to the origin', async () => 
   expect(secondAdapter.isStableAt(0)).toBe(true);
 });
 
+it('writes the scroller and reports progress once per animation frame', async () => {
+  const fixture = createRendition();
+  const frames = createFrameDriver();
+  const adapter = createEpubPageTurnAdapter(fixture.rendition, frames.environment);
+  adapter.begin('stable-cfi');
+  adapter.dragBy(-40);
+
+  let scrollLeft = fixture.scroller.scrollLeft;
+  const writeScrollLeft = vi.fn((value) => { scrollLeft = value; });
+  Object.defineProperty(fixture.scroller, 'scrollLeft', {
+    configurable: true,
+    get: () => scrollLeft,
+    set: writeScrollLeft,
+  });
+  const onProgress = vi.fn();
+  const settling = adapter.animateTo(1, { duration: 180, onProgress });
+
+  frames.step(0);
+  expect(writeScrollLeft).toHaveBeenCalledTimes(1);
+  expect(onProgress).toHaveBeenCalledTimes(1);
+
+  writeScrollLeft.mockClear();
+  onProgress.mockClear();
+  frames.step(180);
+  await settling;
+
+  expect(writeScrollLeft).toHaveBeenCalledTimes(1);
+  expect(onProgress).toHaveBeenCalledTimes(1);
+  expect(scrollLeft).toBe(200);
+});
+
 it('cancels rAF, restores inline styles, and recovers the stable CFI', async () => {
   const fixture = createRendition();
   fixture.scroller.style.transform = 'scale(1)';

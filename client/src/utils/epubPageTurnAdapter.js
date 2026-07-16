@@ -263,12 +263,6 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
           return;
         }
 
-        writeLogical(destination);
-        setBoundaryOffset(0);
-        options.onProgress?.({
-          pageWidth: session.pageWidth,
-          progress: Math.abs(pageDelta),
-        });
         animation = null;
         resolve({ status: 'completed' });
       };

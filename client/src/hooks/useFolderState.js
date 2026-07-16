@@ -4,10 +4,12 @@ import {
   renameFolder,
 } from '../api/foldersApi.js';
 import { normalizeFolderBook } from '../utils/libraryItems.js';
+import { useReducedMotion } from './useReducedMotion.js';
 
 const FOLDER_CLOSE_ANIM_MS = 180;
 
 export function useFolderState({ onFolderRenamed } = {}) {
+  const reducedMotion = useReducedMotion();
   const folderCloseTimeoutRef = useRef(null);
   const folderRequestRef = useRef({
     controller: null,
@@ -107,11 +109,22 @@ export function useFolderState({ onFolderRenamed } = {}) {
 
     invalidateFolderRequest();
     setIsFolderClosing(true);
+    if (reducedMotion) {
+      finishCloseFolder();
+      return;
+    }
+
     folderCloseTimeoutRef.current = setTimeout(() => {
       folderCloseTimeoutRef.current = null;
       finishCloseFolder();
     }, FOLDER_CLOSE_ANIM_MS);
-  }, [finishCloseFolder, invalidateFolderRequest, isFolderClosing, isSavingFolderName]);
+  }, [
+    finishCloseFolder,
+    invalidateFolderRequest,
+    isFolderClosing,
+    isSavingFolderName,
+    reducedMotion,
+  ]);
 
   const handleStartFolderRename = useCallback(() => {
     if (!openFolder || isSavingFolderName) {

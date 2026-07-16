@@ -82,4 +82,21 @@ describe('useFolderState request ordering', () => {
     expect(result.current.folderError).toBe('当前文件夹网络错误');
     expect(result.current.isFolderLoading).toBe(false);
   });
+
+  it('finishes close synchronously when reduced motion is requested', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+    api.listFolderBooks.mockResolvedValue({ books: [] });
+    const { result } = renderHook(() => useFolderState());
+
+    await act(async () => {
+      await result.current.handleOpenFolder({ id: 4, name: 'D' });
+    });
+    act(() => result.current.handleCloseFolder());
+    expect(result.current.openFolder).toBeNull();
+    expect(result.current.isFolderClosing).toBe(false);
+  });
 });

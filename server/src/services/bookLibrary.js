@@ -165,6 +165,17 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
   const storedPath = toStoredPath(filePath);
   const fallbackTitle = options.title ?? titleFromFileName(fileName);
   const existing = db.prepare('SELECT * FROM books WHERE file_path = ?').get(storedPath);
+  const fileMtimeMs = Math.trunc(fileStat.mtimeMs);
+  const fileIsUnchanged = Boolean(
+    existing &&
+    existing.file_size === fileStat.size &&
+    existing.file_mtime_ms === fileMtimeMs,
+  );
+
+  if (fileIsUnchanged && !options.forceRefresh) {
+    return existing;
+  }
+
   const epubDetails = await inspectEpubFile(filePath, options);
   const metadata = epubDetails.metadata;
   const coverImage = epubDetails.coverImage;
@@ -191,6 +202,7 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
              identifier = @identifier,
              file_name = @fileName,
              file_size = @fileSize,
+             file_mtime_ms = @fileMtimeMs,
              cover_path = @coverPath,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = @id`,
@@ -204,6 +216,7 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
         identifier: metadata.identifier,
         fileName: displayFileName,
         fileSize: fileStat.size,
+        fileMtimeMs,
         coverPath,
       });
 
@@ -222,6 +235,7 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
            file_name,
            file_path,
            file_size,
+           file_mtime_ms,
            cover_path,
            sort_order
          )
@@ -235,6 +249,7 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
            @fileName,
            @filePath,
            @fileSize,
+           @fileMtimeMs,
            @coverPath,
            @sortOrder
          )`,
@@ -249,6 +264,7 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
         fileName,
         filePath: storedPath,
         fileSize: fileStat.size,
+        fileMtimeMs,
         coverPath,
         sortOrder: nextShelfSortOrder(db),
       });

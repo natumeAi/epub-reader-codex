@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "verify:reader-accessibility": "node scripts/verify-reader-accessibility.mjs",
     "verify:reader-mobile": "node scripts/verify-reader-mobile.mjs",
+    "verify:reader-page-turn": "node scripts/verify-reader-page-turn.mjs",
     "verify:reader-progress": "node scripts/verify-reader-progress.mjs",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -60,6 +60,8 @@ jobs:
         working-directory: client
       - run: npm run verify:reader-mobile
         working-directory: client
+      - run: npm run verify:reader-page-turn
+        working-directory: client
       - run: npm run verify:reader-progress
         working-directory: client
       - run: npm run verify:reader-accessibility

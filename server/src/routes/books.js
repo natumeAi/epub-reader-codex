@@ -1,10 +1,12 @@
-import { unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import multer from 'multer';
 import { Router } from 'express';
+import { deleteBookCoverFiles } from '../services/coverStorage.js';
 import {
   createEpubUploadStorage,
   fileNameFromUpload,
   isEpubUpload,
+  moveValidatedUploadToBooks,
   titleFromUpload,
 } from '../services/fileStorage.js';
 import {
@@ -12,6 +14,7 @@ import {
   deleteBookById,
   getBookById,
   getBookFilePath,
+  inspectEpubFile,
   listBooks,
   updateShelfBookOrder,
 } from '../services/bookLibrary.js';
@@ -152,7 +155,9 @@ router.patch('/order', (req, res, next) => {
 });
 
 router.post('/', handleUpload, async (req, res, next) => {
-  const uploadedPath = req.file?.path;
+  const stagedPath = req.file?.path;
+  let finalPath = null;
+  let committed = false;
 
   try {
     const db = requireDatabase(req);
@@ -163,22 +168,36 @@ router.post('/', handleUpload, async (req, res, next) => {
       throw error;
     }
 
-    const book = await addBookFileToLibrary(db, req.file.path, {
-      fileName: fileNameFromUpload(req.file),
+    const displayFileName = fileNameFromUpload(req.file);
+    const epubDetails = await inspectEpubFile(stagedPath);
+    finalPath = moveValidatedUploadToBooks(stagedPath, displayFileName);
+    const book = await addBookFileToLibrary(db, finalPath, {
+      archiveValidated: true,
+      epubDetails,
+      fileName: displayFileName,
       title: titleFromUpload(req.file),
     });
-
+    committed = true;
     res.status(201).json({ book });
-  } catch (err) {
-    if (uploadedPath) {
-      try {
-        unlinkSync(uploadedPath);
-      } catch {
-        // Keep the original upload error response.
+  } catch (error) {
+    if (!committed) {
+      for (const filePath of [stagedPath, finalPath]) {
+        if (!filePath || !existsSync(filePath)) continue;
+        try {
+          unlinkSync(filePath);
+        } catch {
+          // Preserve the primary error.
+        }
+      }
+      if (finalPath) {
+        try {
+          deleteBookCoverFiles(finalPath);
+        } catch {
+          // Preserve the primary error.
+        }
       }
     }
-
-    next(err);
+    next(error);
   }
 });
 

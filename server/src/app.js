@@ -6,7 +6,12 @@ import { checkDatabase } from './db/database.js';
 import booksRouter from './routes/books.js';
 import foldersRouter from './routes/folders.js';
 import readingRouter from './routes/reading.js';
-import { coversDir, ensureCoverDirectory } from './services/fileStorage.js';
+import {
+  cleanupStaleUploads,
+  coversDir,
+  ensureCoverDirectory,
+  ensureStagingDirectory,
+} from './services/fileStorage.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const clientDistDir = path.resolve(currentDir, '..', 'public');
@@ -18,6 +23,8 @@ export function createApp({ db } = {}) {
   app.locals.db = db;
 
   ensureCoverDirectory();
+  ensureStagingDirectory();
+  cleanupStaleUploads();
 
   app.use(express.json({ limit: '1mb' }));
   app.use('/covers', express.static(coversDir));
@@ -51,10 +58,15 @@ export function createApp({ db } = {}) {
 
   app.use((err, req, res, next) => {
     const status = err.status || 500;
+    if (status === 500) {
+      console.error(`${req.method} ${req.path}`, err.stack || err);
+    }
 
-    res.status(status).json({
+    const body = {
       error: status === 500 ? 'Internal Server Error' : err.message,
-    });
+    };
+    if (err.code) body.code = err.code;
+    res.status(status).json(body);
   });
 
   return app;

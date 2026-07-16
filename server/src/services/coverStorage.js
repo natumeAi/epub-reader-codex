@@ -120,3 +120,14 @@ export function deleteStoredCover(storedCoverPath) {
 
   unlinkSync(coverPath);
 }
+
+export function deleteBookCoverFiles(bookFilePath) {
+  ensureCoverDirectory();
+  const baseName = coverBaseName(toStoredPath(bookFilePath));
+
+  for (const fileName of readdirSync(coversDir)) {
+    if (!fileName.startsWith(`${baseName}.`)) continue;
+    const filePath = path.join(coversDir, fileName);
+    if (existsSync(filePath)) unlinkSync(filePath);
+  }
+}

@@ -1,6 +1,7 @@
 import {
   clampDragDistance,
   dampBoundaryDistance,
+  easeOutCubic,
 } from './pageTurnGesture.js';
 
 const ALIGNMENT_EPSILON_PX = 1;
@@ -43,6 +44,21 @@ export function toPhysicalScroll({
 }
 
 export function createEpubPageTurnAdapter(rendition, environment = {}) {
+  const requestFrame =
+    environment.requestAnimationFrame || globalThis.requestAnimationFrame.bind(globalThis);
+  const cancelFrame =
+    environment.cancelAnimationFrame || globalThis.cancelAnimationFrame.bind(globalThis);
+  const now = environment.now || (() => globalThis.performance.now());
+  let animation = null;
+
+  function stopAnimation() {
+    if (!animation) return;
+    cancelFrame(animation.frameId);
+    const resolve = animation.resolve;
+    animation = null;
+    resolve({ status: 'cancelled' });
+  }
+
   let destroyed = false;
   let session = null;
 
@@ -199,8 +215,82 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     session = null;
   }
 
-  function cancel() {
-    if (session) {
+  function animateTo(pageDelta, options = {}) {
+    if (!session || ![-1, 0, 1].includes(pageDelta)) {
+      return Promise.resolve({ status: 'unavailable' });
+    }
+    if (
+      (pageDelta === 1 && !session.canNext) ||
+      (pageDelta === -1 && !session.canPrevious)
+    ) {
+      return Promise.resolve({ status: 'unavailable' });
+    }
+
+    stopAnimation();
+    const duration = Math.max(0, Number(options.duration) || 0);
+    const startTime = now();
+    const startLogical = readLogical();
+    const startBoundaryOffset = session.boundaryOffset;
+    const destination = session.origin + pageDelta * session.pageWidth;
+
+    return new Promise((resolve) => {
+      const tick = () => {
+        if (!session || destroyed) {
+          animation = null;
+          resolve({ status: 'cancelled' });
+          return;
+        }
+
+        const elapsed = now() - startTime;
+        const linearProgress = duration === 0 ? 1 : Math.min(1, elapsed / duration);
+        const easedProgress = easeOutCubic(linearProgress);
+        const logical =
+          startLogical + (destination - startLogical) * easedProgress;
+        const boundaryOffset = startBoundaryOffset * (1 - easedProgress);
+
+        writeLogical(logical);
+        setBoundaryOffset(boundaryOffset);
+        options.onProgress?.({
+          pageWidth: session.pageWidth,
+          progress: Math.min(
+            1,
+            Math.abs(logical - session.origin) / session.pageWidth,
+          ),
+        });
+
+        if (linearProgress < 1) {
+          animation.frameId = requestFrame(tick);
+          return;
+        }
+
+        writeLogical(destination);
+        setBoundaryOffset(0);
+        options.onProgress?.({
+          pageWidth: session.pageWidth,
+          progress: Math.abs(pageDelta),
+        });
+        animation = null;
+        resolve({ status: 'completed' });
+      };
+
+      animation = {
+        frameId: requestFrame(tick),
+        resolve,
+      };
+    });
+  }
+
+  async function recover() {
+    const stableCfi = session?.stableCfi;
+    cancel({ restoreOrigin: true });
+    if (!stableCfi || typeof rendition?.display !== 'function') return false;
+    await rendition.display(stableCfi);
+    return true;
+  }
+
+  function cancel(options = {}) {
+    stopAnimation();
+    if (session && options.restoreOrigin !== false) {
       writeLogical(session.origin);
       setBoundaryOffset(0);
     }
@@ -208,11 +298,12 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   }
 
   function destroy() {
-    cancel();
+    cancel({ restoreOrigin: true });
     destroyed = true;
   }
 
   return {
+    animateTo,
     begin,
     cancel,
     destroy,
@@ -221,5 +312,6 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     inspect,
     isStableAligned,
     isStableAt,
+    recover,
   };
 }

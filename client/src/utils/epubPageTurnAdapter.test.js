@@ -110,3 +110,73 @@ describe('epub page-turn adapter core', () => {
     expect(scroller.style.transform).toBe('');
   });
 });
+
+function createFrameDriver() {
+  let callback = null;
+  let time = 0;
+  return {
+    environment: {
+      cancelAnimationFrame: vi.fn(() => { callback = null; }),
+      now: () => time,
+      requestAnimationFrame: vi.fn((next) => {
+        callback = next;
+        return 1;
+      }),
+    },
+    step(nextTime) {
+      time = nextTime;
+      const next = callback;
+      callback = null;
+      next?.(nextTime);
+    },
+  };
+}
+
+it('settles exactly one page and rolls back exactly to the origin', async () => {
+  const first = createRendition();
+  const firstFrames = createFrameDriver();
+  const firstAdapter = createEpubPageTurnAdapter(first.rendition, firstFrames.environment);
+  firstAdapter.begin('stable-cfi');
+  firstAdapter.dragBy(-40);
+  const completed = firstAdapter.animateTo(1, { duration: 180 });
+  firstFrames.step(0);
+  firstFrames.step(180);
+  await expect(completed).resolves.toEqual({ status: 'completed' });
+  expect(first.scroller.scrollLeft).toBe(200);
+  expect(firstAdapter.isStableAt(1)).toBe(true);
+
+  const second = createRendition();
+  const secondFrames = createFrameDriver();
+  const secondAdapter = createEpubPageTurnAdapter(second.rendition, secondFrames.environment);
+  secondAdapter.begin('stable-cfi');
+  secondAdapter.dragBy(-40);
+  const reverted = secondAdapter.animateTo(0, { duration: 120 });
+  secondFrames.step(0);
+  secondFrames.step(120);
+  await expect(reverted).resolves.toEqual({ status: 'completed' });
+  expect(second.scroller.scrollLeft).toBe(100);
+  expect(secondAdapter.isStableAt(0)).toBe(true);
+});
+
+it('cancels rAF, restores inline styles, and recovers the stable CFI', async () => {
+  const fixture = createRendition();
+  fixture.scroller.style.transform = 'scale(1)';
+  const frames = createFrameDriver();
+  const adapter = createEpubPageTurnAdapter(fixture.rendition, frames.environment);
+  adapter.begin('epubcfi(/6/2!/4/2)');
+  adapter.dragBy(-40);
+  const settling = adapter.animateTo(1, { duration: 180 });
+
+  adapter.cancel({ restoreOrigin: true });
+  await expect(settling).resolves.toEqual({ status: 'cancelled' });
+  expect(frames.environment.cancelAnimationFrame).toHaveBeenCalledTimes(1);
+  expect(fixture.scroller.scrollLeft).toBe(100);
+  expect(fixture.scroller.style.transform).toBe('scale(1)');
+
+  adapter.begin('epubcfi(/6/2!/4/2)');
+  await expect(adapter.recover()).resolves.toBe(true);
+  expect(fixture.rendition.display).toHaveBeenCalledWith('epubcfi(/6/2!/4/2)');
+
+  adapter.destroy();
+  expect(adapter.begin('later-cfi')).toBeNull();
+});

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PAGE_TURN_RULES } from '../utils/pageTurnGesture.js';
+import {
+  PAGE_TURN_RULES,
+  classifyDirection,
+  decidePageDelta,
+  getRecentVelocity,
+  getSettleDuration,
+  getTapZone,
+} from '../utils/pageTurnGesture.js';
 
 function pageDelta(direction) {
   return direction === 'next' ? 1 : -1;
@@ -46,7 +53,9 @@ function createRelocationWait(rendition, predicate, timeoutMs) {
 export function usePageTurnController({
   adapter,
   currentCfiRef,
+  disabled = false,
   edgeRef,
+  onCenterTap,
   reducedMotion = false,
   renditionRef,
 }) {
@@ -55,6 +64,9 @@ export function usePageTurnController({
   const phaseRef = useRef('basic');
   const basicRef = useRef(true);
   const relocationWaitRef = useRef(null);
+  const pointerRef = useRef(null);
+  const dragFrameRef = useRef(null);
+  const pendingDragDistanceRef = useRef(0);
 
   const setPhase = useCallback((nextPhase) => {
     phaseRef.current = nextPhase;
@@ -89,12 +101,58 @@ export function usePageTurnController({
     setPhase('basic');
   }, [clearEdge, setPhase]);
 
+  const clearDragFrame = useCallback(() => {
+    if (dragFrameRef.current !== null) {
+      cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+  }, []);
+
+  const releasePointer = useCallback((pointer = pointerRef.current) => {
+    if (!pointer) return;
+    try {
+      if (pointer.target?.hasPointerCapture?.(pointer.pointerId)) {
+        pointer.target.releasePointerCapture(pointer.pointerId);
+      }
+    } catch {
+      // Pointer capture can already be gone after browser cancellation.
+    }
+  }, []);
+
+  const writeDragFrame = useCallback((distanceX) => {
+    const result = adapter?.dragBy(distanceX);
+    if (result && pointerRef.current) {
+      writeEdgeProgress(
+        result.direction,
+        result.progress,
+        pointerRef.current.session.pageWidth,
+      );
+    }
+    return result;
+  }, [adapter, writeEdgeProgress]);
+
+  const queueDragFrame = useCallback((distanceX) => {
+    pendingDragDistanceRef.current = distanceX;
+    if (dragFrameRef.current !== null) return;
+    dragFrameRef.current = requestAnimationFrame(() => {
+      dragFrameRef.current = null;
+      writeDragFrame(pendingDragDistanceRef.current);
+    });
+  }, [writeDragFrame]);
+
+  const finishPointer = useCallback(() => {
+    clearDragFrame();
+    releasePointer();
+    pointerRef.current = null;
+  }, [clearDragFrame, releasePointer]);
+
   const cancelPageTurn = useCallback(() => {
     relocationWaitRef.current?.cancel();
     relocationWaitRef.current = null;
+    finishPointer();
     adapter?.cancel({ restoreOrigin: true });
     restoreReadyPhase();
-  }, [adapter, restoreReadyPhase]);
+  }, [adapter, finishPointer, restoreReadyPhase]);
 
   useEffect(() => {
     adapter?.cancel({ restoreOrigin: true });
@@ -106,6 +164,22 @@ export function usePageTurnController({
       adapter?.cancel({ restoreOrigin: true });
     };
   }, [adapter, reducedMotion, setPhase]);
+
+  useEffect(() => {
+    const cancelForLifecycle = () => cancelPageTurn('viewport');
+    const cancelWhenHidden = () => {
+      if (document.visibilityState === 'hidden') cancelPageTurn('hidden');
+    };
+    window.addEventListener('resize', cancelForLifecycle);
+    window.addEventListener('orientationchange', cancelForLifecycle);
+    document.addEventListener('visibilitychange', cancelWhenHidden);
+    return () => {
+      window.removeEventListener('resize', cancelForLifecycle);
+      window.removeEventListener('orientationchange', cancelForLifecycle);
+      document.removeEventListener('visibilitychange', cancelWhenHidden);
+      cancelPageTurn('unmount');
+    };
+  }, [cancelPageTurn]);
 
   const runBasicNavigation = useCallback(async (nextDirection) => {
     const rendition = renditionRef.current;
@@ -204,9 +278,228 @@ export function usePageTurnController({
     writeEdgeProgress,
   ]);
 
+  const handlePointerDown = useCallback((event) => {
+    if (
+      disabled ||
+      !['idle', 'basic'].includes(phaseRef.current) ||
+      (event.pointerType === 'touch' && event.isPrimary === false)
+    ) {
+      return;
+    }
+
+    const touch = event.pointerType === 'touch';
+    let session = null;
+    let mode = touch ? 'basic' : 'tap';
+    if (touch && !basicRef.current) {
+      session = adapter?.begin(currentCfiRef.current);
+      if (session) mode = 'enhanced';
+      else enterBasic();
+    }
+
+    pointerRef.current = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      target: event.currentTarget,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      locked: null,
+      captured: false,
+      mode,
+      session,
+      samples: [{ x: event.clientX, time: event.timeStamp }],
+    };
+    setPhase('pending');
+  }, [adapter, currentCfiRef, disabled, enterBasic, setPhase]);
+
+  const handlePointerMove = useCallback((event) => {
+    const pointer = pointerRef.current;
+    if (!pointer || event.pointerId !== pointer.pointerId || pointer.pointerType !== 'touch') return;
+    const dx = event.clientX - pointer.startX;
+    const dy = event.clientY - pointer.startY;
+    pointer.lastX = event.clientX;
+    pointer.lastY = event.clientY;
+    pointer.samples.push({ x: event.clientX, time: event.timeStamp });
+    if (pointer.samples.length > 12) pointer.samples.shift();
+
+    if (!pointer.locked) {
+      const lock = classifyDirection(dx, dy);
+      if (lock === 'pending') return;
+      if (lock === 'vertical') {
+        adapter?.cancel({ restoreOrigin: true });
+        finishPointer();
+        restoreReadyPhase();
+        return;
+      }
+      pointer.locked = 'horizontal';
+      if (pointer.mode === 'enhanced') {
+        const nextDirection = dx < 0 ? 'next' : 'prev';
+        setDirection(nextDirection);
+        setPhase('dragging');
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          pointer.captured = true;
+        } catch {
+          pointer.captured = false;
+        }
+      }
+    }
+
+    if (pointer.locked === 'horizontal') {
+      if (event.cancelable) event.preventDefault();
+      if (pointer.mode === 'enhanced') queueDragFrame(dx);
+    }
+  }, [adapter, finishPointer, queueDragFrame, restoreReadyPhase, setPhase]);
+
+  const handlePointerUp = useCallback((event) => {
+    const pointer = pointerRef.current;
+    if (!pointer || event.pointerId !== pointer.pointerId) return;
+    const dx = event.clientX - pointer.startX;
+    const dy = event.clientY - pointer.startY;
+    pointer.samples.push({ x: event.clientX, time: event.timeStamp });
+
+    const settle = async () => {
+      if (pointer.pointerType !== 'touch' || !pointer.locked) {
+        adapter?.cancel({ restoreOrigin: true });
+        finishPointer();
+        restoreReadyPhase();
+        if (Math.max(Math.abs(dx), Math.abs(dy)) >= PAGE_TURN_RULES.directionLockPx) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        const zone = getTapZone(event.clientX, rect.left, rect.width);
+        if (zone === 'center') onCenterTap?.();
+        else await turnPage(zone);
+        return;
+      }
+
+      if (pointer.locked !== 'horizontal') {
+        cancelPageTurn('vertical');
+        return;
+      }
+
+      clearDragFrame();
+      const dragResult = pointer.mode === 'enhanced'
+        ? writeDragFrame(dx)
+        : {
+            effectiveDistanceX: dx,
+            progress: pointer.session ? Math.abs(dx) / pointer.session.pageWidth : 0,
+          };
+      const velocityX = getRecentVelocity(pointer.samples);
+      const width = pointer.session?.pageWidth ||
+        adapter?.inspect?.().pageWidth ||
+        event.currentTarget.getBoundingClientRect().width;
+      const delta = decidePageDelta({
+        distanceX: dx,
+        velocityX,
+        pageWidth: width,
+      });
+      const nextDirection = delta === 1
+        ? 'next'
+        : delta === -1
+          ? 'prev'
+          : dx < 0
+            ? 'next'
+            : 'prev';
+      finishPointer();
+
+      if (pointer.mode !== 'enhanced') {
+        restoreReadyPhase();
+        if (delta) await turnPage(nextDirection);
+        return;
+      }
+
+      setPhase('settling');
+      if (delta === 0) {
+        const duration = getSettleDuration(
+          Math.abs(dragResult?.effectiveDistanceX || 0),
+          pointer.session.pageWidth,
+        );
+        await adapter.animateTo(0, {
+          duration,
+          onProgress: ({ pageWidth, progress }) => {
+            writeEdgeProgress(nextDirection, progress, pageWidth);
+          },
+        });
+        adapter.end();
+        restoreReadyPhase();
+        return;
+      }
+
+      const neighborReady =
+        delta === 1 ? pointer.session.canNext : pointer.session.canPrevious;
+      if (!neighborReady) {
+        await adapter.animateTo(0, {
+          duration: PAGE_TURN_RULES.settleDurationMinMs,
+          onProgress: ({ pageWidth, progress }) => {
+            writeEdgeProgress(nextDirection, progress, pageWidth);
+          },
+        });
+        adapter.end();
+        const location = await readCurrentLocation(renditionRef.current).catch(() => null);
+        if (!isBoundary(location, nextDirection)) {
+          await runBasicNavigation(nextDirection);
+        }
+        restoreReadyPhase();
+        return;
+      }
+
+      const remaining = Math.max(
+        0,
+        pointer.session.pageWidth - Math.abs(dragResult?.effectiveDistanceX || 0),
+      );
+      const waiter = createRelocationWait(
+        renditionRef.current,
+        () => adapter.isStableAt(delta),
+        PAGE_TURN_RULES.relocatedTimeoutMs,
+      );
+      relocationWaitRef.current = waiter;
+      const animation = await adapter.animateTo(delta, {
+        duration: getSettleDuration(remaining, pointer.session.pageWidth),
+        onProgress: ({ pageWidth, progress }) => {
+          writeEdgeProgress(nextDirection, progress, pageWidth);
+        },
+      });
+      const location = animation.status === 'completed' ? await waiter.promise : null;
+      if (!location || !adapter.isStableAt(delta)) {
+        waiter.cancel();
+        await adapter.recover();
+        enterBasic();
+      } else {
+        adapter.end();
+      }
+      relocationWaitRef.current = null;
+      restoreReadyPhase();
+    };
+
+    void settle();
+  }, [
+    adapter,
+    cancelPageTurn,
+    clearDragFrame,
+    enterBasic,
+    finishPointer,
+    onCenterTap,
+    renditionRef,
+    restoreReadyPhase,
+    runBasicNavigation,
+    setPhase,
+    turnPage,
+    writeDragFrame,
+    writeEdgeProgress,
+  ]);
+
+  const handlePointerCancel = useCallback((event) => {
+    if (pointerRef.current?.pointerId !== event.pointerId) return;
+    cancelPageTurn('pointercancel');
+  }, [cancelPageTurn]);
+
   return {
     cancelPageTurn,
     direction,
+    handlePointerCancel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
     phase,
     turnPage,
   };

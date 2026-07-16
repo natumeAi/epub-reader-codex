@@ -38,6 +38,12 @@ function createHarness(options = {}) {
       pageWidth: 100,
     })),
     cancel: vi.fn(),
+    dragBy: vi.fn((distanceX) => ({
+      boundary: false,
+      direction: distanceX < 0 ? 'next' : 'prev',
+      effectiveDistanceX: distanceX,
+      progress: Math.min(1, Math.abs(distanceX) / 100),
+    })),
     end: vi.fn(),
     inspect: vi.fn(() => ({ available: true })),
     isStableAt: vi.fn(() => stableAtTarget),
@@ -130,4 +136,105 @@ describe('usePageTurnController navigation', () => {
     expect(result.current.phase).toBe('basic');
     expect(harness.rendition.next).not.toHaveBeenCalled();
   });
+});
+
+function pointerEvent(overrides = {}) {
+  return {
+    cancelable: true,
+    clientX: 300,
+    clientY: 300,
+    currentTarget: {
+      getBoundingClientRect: () => ({ left: 0, width: 375 }),
+      hasPointerCapture: vi.fn(() => true),
+      releasePointerCapture: vi.fn(),
+      setPointerCapture: vi.fn(),
+    },
+    isPrimary: true,
+    pointerId: 1,
+    pointerType: 'touch',
+    preventDefault: vi.fn(),
+    timeStamp: 0,
+    ...overrides,
+  };
+}
+
+it('locks a horizontal touch, coalesces drag writes, and ignores mouse dragging', async () => {
+  const harness = createHarness();
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  act(() => result.current.handlePointerDown(pointerEvent()));
+  act(() => result.current.handlePointerMove(pointerEvent({
+    clientX: 295, clientY: 304, timeStamp: 10,
+  })));
+  expect(result.current.phase).toBe('pending');
+
+  act(() => result.current.handlePointerMove(pointerEvent({
+    clientX: 220, clientY: 305, timeStamp: 20,
+  })));
+  await act(async () => { await new Promise(requestAnimationFrame); });
+  expect(result.current.phase).toBe('dragging');
+  expect(harness.adapter.dragBy).toHaveBeenCalledTimes(1);
+
+  act(() => result.current.handlePointerCancel(pointerEvent()));
+  expect(harness.adapter.cancel).toHaveBeenCalled();
+
+  harness.adapter.dragBy.mockClear();
+  act(() => result.current.handlePointerDown(pointerEvent({ pointerType: 'mouse' })));
+  act(() => result.current.handlePointerMove(pointerEvent({
+    clientX: 200, pointerType: 'mouse',
+  })));
+  expect(harness.adapter.dragBy).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['distance', -120, -0.1, 1],
+  ['velocity', -50, -0.7, 1],
+  ['rollback', -50, -0.2, 0],
+])('%s release settles to the expected page delta', async (_name, dx, velocity, expectedDelta) => {
+  const harness = createHarness();
+  harness.adapter.dragBy = vi.fn(() => ({
+    boundary: false,
+    direction: 'next',
+    effectiveDistanceX: dx,
+    progress: Math.abs(dx) / 100,
+  }));
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  const start = pointerEvent({ clientX: 300, timeStamp: 0 });
+  const moveTime = Math.abs(velocity) >= 0.45 ? 50 : 250;
+  const move = pointerEvent({
+    clientX: 300 + dx,
+    timeStamp: moveTime,
+  });
+  act(() => result.current.handlePointerDown(start));
+  act(() => result.current.handlePointerMove(move));
+  await act(async () => { await new Promise(requestAnimationFrame); });
+  await act(async () => {
+    result.current.handlePointerUp(move);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(harness.adapter.animateTo).toHaveBeenCalledWith(
+    expectedDelta,
+    expect.objectContaining({ duration: expect.any(Number) }),
+  );
+});
+
+it('returns to a ready phase and releases capture on resize or pointercancel', async () => {
+  const harness = createHarness();
+  const event = pointerEvent();
+  const { result, unmount } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  act(() => result.current.handlePointerDown(event));
+  act(() => window.dispatchEvent(new Event('resize')));
+  expect(event.currentTarget.releasePointerCapture).toHaveBeenCalledWith(1);
+  expect(harness.adapter.cancel).toHaveBeenCalled();
+  expect(result.current.phase).toBe('idle');
+
+  unmount();
+  expect(harness.adapter.cancel).toHaveBeenCalled();
 });

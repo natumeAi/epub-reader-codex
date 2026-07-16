@@ -112,6 +112,14 @@ router.put('/:bookId', (req, res, next) => {
       throw error;
     }
 
+    const bookExists = db.prepare('SELECT 1 FROM books WHERE id = ?').get(bookId);
+    if (!bookExists) {
+      const error = new Error('Book not found');
+      error.status = 404;
+      error.code = 'BOOK_NOT_FOUND';
+      throw error;
+    }
+
     db.prepare(`
       INSERT INTO reading_progress (book_id, cfi, progress, chapter_href, chapter_label, updated_at)
       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)

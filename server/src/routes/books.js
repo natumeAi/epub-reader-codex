@@ -214,7 +214,7 @@ router.get('/:id/file', (req, res, next) => {
     }
 
     res.setHeader('Content-Type', 'application/epub+zip');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Cache-Control', 'private, no-cache');
     res.sendFile(filePath);
   } catch (err) {
     next(err);

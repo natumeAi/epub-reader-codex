@@ -12,4 +12,8 @@ server/data/covers/
 
 # Local editor / tooling config
 .claude/
+.superpowers/
 .worktrees/
+
+# Local verification artifacts
+client/reader-settings-narrow.png

@@ -199,9 +199,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   }
 
   function isStableAligned() {
-    const capability = session ? null : inspect();
-    if (capability) return capability.available;
-    if (!session) return false;
+    if (!session) return true;
     const logical = readLogical();
     const nearest = Math.round(logical / session.pageWidth) * session.pageWidth;
     return Math.abs(logical - nearest) <= ALIGNMENT_EPSILON_PX &&

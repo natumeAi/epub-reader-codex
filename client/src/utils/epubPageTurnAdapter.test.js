@@ -90,6 +90,19 @@ describe('epub page-turn adapter core', () => {
     expect(scroller.addEventListener).not.toHaveBeenCalled();
   });
 
+  it('allows basic relocated events when enhanced capability is unavailable', () => {
+    const { rendition, manager } = createRendition();
+    manager.settings.direction = 'rtl';
+    manager.settings.rtlScrollType = 'reverse';
+    const adapter = createEpubPageTurnAdapter(rendition);
+
+    expect(adapter.inspect()).toMatchObject({
+      available: false,
+      reason: 'rtl-scroll-type',
+    });
+    expect(adapter.isStableAligned()).toBe(true);
+  });
+
   it('limits a missing-neighbor drag to a 28px transformed boundary offset', () => {
     const { rendition, scroller } = createRendition();
     scroller.scrollLeft = 0;

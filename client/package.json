@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "verify:reader-mobile": "node scripts/verify-reader-mobile.mjs",
+    "verify:reader-progress": "node scripts/verify-reader-progress.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

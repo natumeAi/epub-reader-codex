@@ -1,38 +1,19 @@
 import { chromium } from 'playwright';
+import { prepareReaderVerification } from './reader-verification-environment.mjs';
 
-const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5173/';
-const SCREENSHOT_PATH = process.env.SCREENSHOT_PATH || 'reader-settings-narrow.png';
-const BROWSER_PATHS = [
-  process.env.PLAYWRIGHT_CHROME_PATH,
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-].filter(Boolean);
-
-async function findBrowserPath() {
-  const fs = await import('node:fs');
-
-  return BROWSER_PATHS.find((path) => fs.existsSync(path));
-}
-
-const executablePath = await findBrowserPath();
-
-if (!executablePath) {
-  throw new Error('未找到可用于 Playwright 的 Chrome 或 Edge 浏览器');
-}
-
-const browser = await chromium.launch({
-  executablePath,
-  headless: true,
-});
-const page = await browser.newPage({
-  viewport: { width: 375, height: 667 },
-  isMobile: true,
-  hasTouch: true,
-});
+const environment = await prepareReaderVerification();
+const APP_URL = environment.appUrl;
+const SCREENSHOT_PATH = environment.screenshotPath;
+let browser;
 
 try {
+  browser = await chromium.launch(environment.browserOptions);
+  const page = await browser.newPage({
+    viewport: { width: 375, height: 667 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
   await page.goto(APP_URL, { waitUntil: 'networkidle', timeout: 30000 });
   const firstBook = page.locator('.continue-book-button[data-book-id], button.book-shell[data-book-id]').first();
   await firstBook.waitFor({ timeout: 10000 });
@@ -155,5 +136,9 @@ try {
     screenshot: SCREENSHOT_PATH,
   }, null, 2));
 } finally {
-  await browser.close();
+  try {
+    await browser?.close();
+  } finally {
+    await environment.cleanup();
+  }
 }

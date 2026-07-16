@@ -24,8 +24,10 @@ export async function createFolderFromBooks(sourceBookId, targetBookId) {
   return response.json();
 }
 
-export async function listFolderBooks(folderId) {
-  const response = await fetch(`/api/folders/${folderId}/books`);
+export async function listFolderBooks(folderId, options = {}) {
+  const response = await fetch(`/api/folders/${folderId}/books`, {
+    signal: options.signal,
+  });
 
   if (!response.ok) {
     throw new Error(response.status === 404 ? '文件夹不存在' : '无法加载文件夹');

@@ -34,8 +34,9 @@ export function useUploadBooks({ loadShelf = noop, setError = noop } = {}) {
 
           try {
             await uploadBook(file);
-          } catch {
-            failedFiles.push(file.name || '未命名文件');
+          } catch (error) {
+            const fileName = file.name || '未命名文件';
+            failedFiles.push(`${fileName}（${error.message || '上传失败'}）`);
           }
         }
 

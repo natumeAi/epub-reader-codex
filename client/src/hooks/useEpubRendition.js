@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Epub from 'epubjs';
 import { getReadingProgress } from '../api/readingApi.js';
+import { selectProgressForRelocation } from '../utils/readingProgress.js';
 
 const RENDITION_COLUMN_GAP = 0;
 
@@ -12,8 +13,9 @@ export function useEpubRendition({
   bookRef,
   containerRef,
   currentCfiRef,
+  enqueueProgress,
   error,
-  flushPendingChanges,
+  flushPendingReaderSettings,
   isClosingRef,
   isLoading,
   loadReaderSettings,
@@ -22,7 +24,6 @@ export function useEpubRendition({
   renditionRef,
   resetPageProgress,
   resetReaderSettingsLoad,
-  scheduleSave,
   setError,
   setIsLoading,
   updatePageProgressFromLocation,
@@ -36,6 +37,7 @@ export function useEpubRendition({
     if (!containerRef.current || !book?.id) return undefined;
 
     let destroyed = false;
+    let handleRelocated;
     let reapplyReaderSettingsToView;
     setIsLoading(true);
     setError('');
@@ -90,24 +92,54 @@ export function useEpubRendition({
 
         let startCfi;
         let loadedReaderSettings = readerSettingsRef.current;
-        try {
-          const [progressResult, settingsResult] = await Promise.allSettled([
-            getReadingProgress(book.id),
-            loadReaderSettings(),
-          ]);
-          if (progressResult.status === 'fulfilled') {
-            startCfi = progressResult.value.progress?.cfi || undefined;
-          }
+        let lastValidProgress = 0;
+        let locationsReady = false;
 
-          if (settingsResult.status === 'fulfilled') {
-            loadedReaderSettings = settingsResult.value;
-          }
-        } catch {
-          // No saved progress — start from beginning
-        }
+        const [progressResult, settingsResult] = await Promise.allSettled([
+          getReadingProgress(book.id),
+          loadReaderSettings(),
+        ]);
 
         if (destroyed) return;
 
+        if (progressResult.status === 'fulfilled') {
+          const savedProgress = progressResult.value.progress;
+          startCfi = savedProgress?.cfi || undefined;
+          if (Number.isFinite(savedProgress?.progress)) {
+            lastValidProgress = Math.min(1, Math.max(0, savedProgress.progress));
+            setProgress(lastValidProgress);
+          }
+        }
+
+        if (settingsResult.status === 'fulfilled') {
+          loadedReaderSettings = settingsResult.value;
+        }
+
+        const updateFromLocation = (location) => {
+          if (destroyed || !location?.start?.cfi) return;
+          const cfi = location.start.cfi;
+          const progressValue = selectProgressForRelocation({
+            cfi,
+            lastValidProgress,
+            locations: epubBook.locations,
+            locationsReady,
+          });
+
+          lastValidProgress = progressValue;
+          currentCfiRef.current = cfi;
+          setProgress(progressValue);
+          updatePageProgressFromLocation(location);
+          setCurrentHref(location.start.href || null);
+          enqueueProgress({
+            cfi,
+            progress: progressValue,
+            chapterHref: location.start.href || null,
+            chapterLabel: null,
+          });
+        };
+
+        handleRelocated = updateFromLocation;
+        rendition.on('relocated', handleRelocated);
         applyReaderSettings(rendition, loadedReaderSettings);
         await rendition.display(startCfi);
         await applyReaderHorizontalMargin(
@@ -124,24 +156,13 @@ export function useEpubRendition({
           if (!destroyed) setToc(nav?.toc || []);
         }).catch(() => {});
 
-        epubBook.locations.generate(1024).catch(() => {});
-
-        rendition.on('relocated', (location) => {
+        epubBook.locations.generate(1024).then(async () => {
           if (destroyed) return;
-          const cfi = location.start.cfi;
-          currentCfiRef.current = cfi;
-          const pct = epubBook.locations.percentageFromCfi(cfi);
-          const progressValue =
-            typeof pct === 'number' && Number.isFinite(pct) ? pct : 0;
-          setProgress(progressValue);
-          updatePageProgressFromLocation(location);
-          setCurrentHref(location.start.href || null);
-          scheduleSave({
-            cfi,
-            progress: progressValue,
-            chapterHref: location.start.href || null,
-            chapterLabel: null,
-          });
+          locationsReady = true;
+          const currentLocation = await Promise.resolve(rendition.currentLocation?.());
+          updateFromLocation(currentLocation);
+        }).catch(() => {
+          locationsReady = false;
         });
       } catch {
         if (!destroyed) {
@@ -157,7 +178,8 @@ export function useEpubRendition({
 
     return () => {
       destroyed = true;
-      flushPendingChanges();
+      flushPendingReaderSettings();
+      renditionRef.current?.off?.('relocated', handleRelocated);
       renditionRef.current?.off?.('rendered', reapplyReaderSettingsToView);
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
@@ -173,7 +195,8 @@ export function useEpubRendition({
     bookRef,
     containerRef,
     currentCfiRef,
-    flushPendingChanges,
+    enqueueProgress,
+    flushPendingReaderSettings,
     loadReaderSettings,
     markReaderSettingsLoaded,
     readerReloadKey,
@@ -181,7 +204,6 @@ export function useEpubRendition({
     renditionRef,
     resetPageProgress,
     resetReaderSettingsLoad,
-    scheduleSave,
     setError,
     setIsLoading,
     updatePageProgressFromLocation,
@@ -229,7 +251,7 @@ export function useEpubRendition({
 
   useEffect(() => {
     const handlePageHide = () => {
-      flushPendingChanges();
+      flushPendingReaderSettings();
     };
     const handlePageShow = () => {
       recoverVisibleReader();
@@ -238,7 +260,7 @@ export function useEpubRendition({
       if (document.visibilityState === 'visible') {
         recoverVisibleReader();
       } else {
-        flushPendingChanges();
+        flushPendingReaderSettings();
       }
     };
 
@@ -251,7 +273,7 @@ export function useEpubRendition({
       window.removeEventListener('pageshow', handlePageShow);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [flushPendingChanges, recoverVisibleReader]);
+  }, [flushPendingReaderSettings, recoverVisibleReader]);
 
   return {
     currentHref,

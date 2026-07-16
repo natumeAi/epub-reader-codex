@@ -51,6 +51,15 @@ export function SortableShelfItem({ disabled, dragIntent, item, onOpenBook, onOp
       onOpenBook(item.book, rect || null);
     }
   };
+  const handleKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleClick(event);
+      return;
+    }
+
+    listeners?.onKeyDown?.(event);
+  };
 
   return (
     <button
@@ -63,6 +72,7 @@ export function SortableShelfItem({ disabled, dragIntent, item, onOpenBook, onOp
       onClick={handleClick}
       {...attributes}
       {...listeners}
+      onKeyDown={handleKeyDown}
     >
       <ShelfItemCover item={item} />
       <span className="shelf-item-label">{label}</span>

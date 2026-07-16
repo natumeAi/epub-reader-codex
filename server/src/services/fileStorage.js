@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import multer from 'multer';
@@ -11,6 +19,8 @@ export const dataDir = process.env.EPUB_DATA_DIR
   : path.join(serverRoot, 'data');
 export const booksDir = path.join(dataDir, 'books');
 export const coversDir = path.join(dataDir, 'covers');
+export const stagingDir = path.join(dataDir, 'staging');
+export const STALE_UPLOAD_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export function ensureBookDirectory() {
   mkdirSync(booksDir, { recursive: true });
@@ -18,6 +28,10 @@ export function ensureBookDirectory() {
 
 export function ensureCoverDirectory() {
   mkdirSync(coversDir, { recursive: true });
+}
+
+export function ensureStagingDirectory() {
+  mkdirSync(stagingDir, { recursive: true });
 }
 
 function safeStorageFileName(fileName) {
@@ -47,13 +61,50 @@ function availableBookFileName(fileName) {
 export function createEpubUploadStorage() {
   return multer.diskStorage({
     destination(req, file, callback) {
-      ensureBookDirectory();
-      callback(null, booksDir);
+      ensureStagingDirectory();
+      callback(null, stagingDir);
     },
     filename(req, file, callback) {
-      callback(null, availableBookFileName(fileNameFromUpload(file)));
+      callback(null, `${randomUUID()}.epub`);
     },
   });
+}
+
+function isDirectStagingFile(filePath) {
+  const relativePath = path.relative(path.resolve(stagingDir), path.resolve(filePath));
+  return Boolean(relativePath) && !relativePath.includes(path.sep) && !path.isAbsolute(relativePath);
+}
+
+export function moveValidatedUploadToBooks(uploadedPath, originalName) {
+  if (!isDirectStagingFile(uploadedPath)) {
+    const error = new Error('Upload path is outside staging');
+    error.status = 500;
+    throw error;
+  }
+
+  ensureBookDirectory();
+  const finalPath = path.join(booksDir, availableBookFileName(originalName));
+  renameSync(uploadedPath, finalPath);
+  return finalPath;
+}
+
+export function cleanupStaleUploads(options = {}) {
+  ensureStagingDirectory();
+  const now = options.now ?? Date.now();
+  const maxAgeMs = options.maxAgeMs ?? STALE_UPLOAD_MAX_AGE_MS;
+  let removedCount = 0;
+
+  for (const entry of readdirSync(stagingDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const filePath = path.join(stagingDir, entry.name);
+    if (!isDirectStagingFile(filePath)) continue;
+    const fileStat = statSync(filePath);
+    if (now - fileStat.mtimeMs <= maxAgeMs) continue;
+    unlinkSync(filePath);
+    removedCount += 1;
+  }
+
+  return removedCount;
 }
 
 export function isEpubFileName(fileName) {

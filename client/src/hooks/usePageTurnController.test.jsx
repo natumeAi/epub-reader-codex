@@ -158,6 +158,16 @@ function pointerEvent(overrides = {}) {
   };
 }
 
+async function startEnhancedTouch(result, { endX = 180 } = {}) {
+  const start = pointerEvent({ clientX: 300, timeStamp: 0 });
+  const move = pointerEvent({ clientX: endX, timeStamp: 250 });
+  act(() => result.current.handlePointerDown(start));
+  act(() => result.current.handlePointerMove(move));
+  await act(async () => { await new Promise(requestAnimationFrame); });
+  act(() => result.current.handlePointerUp(move));
+  return { move, start };
+}
+
 it('locks a horizontal touch, coalesces drag writes, and ignores mouse dragging', async () => {
   const harness = createHarness();
   const { result } = renderHook(() => usePageTurnController(harness));
@@ -237,4 +247,90 @@ it('returns to a ready phase and releases capture on resize or pointercancel', a
 
   unmount();
   expect(harness.adapter.cancel).toHaveBeenCalled();
+});
+
+it('does not recover or enter basic after resize cancels enhanced settling', async () => {
+  const harness = createHarness();
+  const animation = deferred();
+  harness.adapter.animateTo.mockReturnValue(animation.promise);
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  await startEnhancedTouch(result);
+  await waitFor(() => expect(result.current.phase).toBe('settling'));
+  act(() => window.dispatchEvent(new Event('resize')));
+  await act(async () => {
+    animation.resolve({ status: 'cancelled' });
+    await animation.promise;
+  });
+
+  expect(harness.adapter.recover).not.toHaveBeenCalled();
+  expect(result.current.phase).toBe('idle');
+});
+
+it('does not run basic navigation after resize cancels a missing-neighbor rollback', async () => {
+  const harness = createHarness();
+  harness.adapter.begin.mockReturnValue({
+    available: true,
+    canNext: false,
+    canPrevious: true,
+    origin: 100,
+    pageWidth: 100,
+  });
+  const animation = deferred();
+  harness.adapter.animateTo.mockReturnValue(animation.promise);
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  await startEnhancedTouch(result);
+  await waitFor(() => expect(result.current.phase).toBe('settling'));
+  act(() => window.dispatchEvent(new Event('resize')));
+  await act(async () => {
+    animation.resolve({ status: 'cancelled' });
+    await animation.promise;
+  });
+
+  expect(harness.rendition.next).not.toHaveBeenCalled();
+  expect(harness.rendition.prev).not.toHaveBeenCalled();
+  expect(result.current.phase).toBe('idle');
+});
+
+it('does not recover after cancellation while automatic navigation waits for relocation', async () => {
+  const harness = createHarness();
+  harness.adapter.animateTo.mockResolvedValue({ status: 'completed' });
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  let navigation;
+  await act(async () => {
+    navigation = result.current.turnPage('next');
+    await Promise.resolve();
+  });
+  act(() => window.dispatchEvent(new Event('resize')));
+  await act(async () => { await navigation; });
+
+  expect(harness.adapter.recover).not.toHaveBeenCalled();
+  expect(result.current.phase).toBe('idle');
+});
+
+it('does not continue enhanced settling after reduced motion cancels capability', async () => {
+  const harness = createHarness();
+  const animation = deferred();
+  harness.adapter.animateTo.mockReturnValue(animation.promise);
+  const { result, rerender } = renderHook(
+    ({ reducedMotion }) => usePageTurnController({ ...harness, reducedMotion }),
+    { initialProps: { reducedMotion: false } },
+  );
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  await startEnhancedTouch(result);
+  await waitFor(() => expect(result.current.phase).toBe('settling'));
+  rerender({ reducedMotion: true });
+  await act(async () => {
+    animation.resolve({ status: 'cancelled' });
+    await animation.promise;
+  });
+
+  expect(harness.adapter.recover).not.toHaveBeenCalled();
+  expect(result.current.phase).toBe('basic');
 });

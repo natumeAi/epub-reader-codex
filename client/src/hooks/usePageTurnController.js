@@ -67,11 +67,16 @@ export function usePageTurnController({
   const pointerRef = useRef(null);
   const dragFrameRef = useRef(null);
   const pendingDragDistanceRef = useRef(0);
+  const cancellationVersionRef = useRef(0);
 
   const setPhase = useCallback((nextPhase) => {
     phaseRef.current = nextPhase;
     setPhaseState(nextPhase);
   }, []);
+
+  const isCurrentOperation = useCallback((version) => (
+    cancellationVersionRef.current === version
+  ), []);
 
   const clearEdge = useCallback(() => {
     edgeRef.current?.style.setProperty('--reader-page-turn-progress', '0');
@@ -147,6 +152,7 @@ export function usePageTurnController({
   }, [clearDragFrame, releasePointer]);
 
   const cancelPageTurn = useCallback(() => {
+    cancellationVersionRef.current += 1;
     relocationWaitRef.current?.cancel();
     relocationWaitRef.current = null;
     finishPointer();
@@ -155,11 +161,13 @@ export function usePageTurnController({
   }, [adapter, finishPointer, restoreReadyPhase]);
 
   useEffect(() => {
+    cancellationVersionRef.current += 1;
     adapter?.cancel({ restoreOrigin: true });
     const capability = adapter?.inspect?.();
     basicRef.current = reducedMotion || !capability?.available;
     setPhase(basicRef.current ? 'basic' : 'idle');
     return () => {
+      cancellationVersionRef.current += 1;
       relocationWaitRef.current?.cancel();
       adapter?.cancel({ restoreOrigin: true });
     };
@@ -201,7 +209,11 @@ export function usePageTurnController({
     }
   }, [renditionRef]);
 
-  const runEnhancedNavigation = useCallback(async (nextDirection, session) => {
+  const runEnhancedNavigation = useCallback(async (
+    nextDirection,
+    session,
+    operationVersion,
+  ) => {
     const delta = pageDelta(nextDirection);
     const rendition = renditionRef.current;
     const waiter = createRelocationWait(
@@ -217,30 +229,44 @@ export function usePageTurnController({
       },
     });
 
+    if (!isCurrentOperation(operationVersion)) {
+      waiter.cancel();
+      return 'ignored';
+    }
     if (animation.status !== 'completed') {
       waiter.cancel();
       return animation.status === 'unavailable' ? 'failed' : 'ignored';
     }
 
     const location = await waiter.promise;
+    if (!isCurrentOperation(operationVersion)) return 'ignored';
     if (!location || !adapter.isStableAt(delta)) {
       await adapter.recover();
+      if (!isCurrentOperation(operationVersion)) return 'ignored';
       enterBasic();
       return 'failed';
     }
 
     adapter.end();
     return 'completed';
-  }, [adapter, enterBasic, renditionRef, writeEdgeProgress]);
+  }, [
+    adapter,
+    enterBasic,
+    isCurrentOperation,
+    renditionRef,
+    writeEdgeProgress,
+  ]);
 
   const turnPage = useCallback(async (nextDirection) => {
     if (!['idle', 'basic'].includes(phaseRef.current)) return 'ignored';
     const rendition = renditionRef.current;
     if (!rendition || !['prev', 'next'].includes(nextDirection)) return 'ignored';
 
+    const operationVersion = cancellationVersionRef.current;
     setPhase('settling');
     try {
       const location = await readCurrentLocation(rendition).catch(() => null);
+      if (!isCurrentOperation(operationVersion)) return 'ignored';
       if (isBoundary(location, nextDirection)) return 'blocked';
 
       if (basicRef.current) {
@@ -262,14 +288,15 @@ export function usePageTurnController({
 
       setDirection(nextDirection);
       writeEdgeProgress(nextDirection, 0, session.pageWidth);
-      return await runEnhancedNavigation(nextDirection, session);
+      return await runEnhancedNavigation(nextDirection, session, operationVersion);
     } finally {
-      restoreReadyPhase();
+      if (isCurrentOperation(operationVersion)) restoreReadyPhase();
     }
   }, [
     adapter,
     currentCfiRef,
     enterBasic,
+    isCurrentOperation,
     renditionRef,
     restoreReadyPhase,
     runBasicNavigation,
@@ -355,6 +382,7 @@ export function usePageTurnController({
   const handlePointerUp = useCallback((event) => {
     const pointer = pointerRef.current;
     if (!pointer || event.pointerId !== pointer.pointerId) return;
+    const operationVersion = cancellationVersionRef.current;
     const dx = event.clientX - pointer.startX;
     const dy = event.clientY - pointer.startY;
     pointer.samples.push({ x: event.clientX, time: event.timeStamp });
@@ -409,66 +437,77 @@ export function usePageTurnController({
       }
 
       setPhase('settling');
-      if (delta === 0) {
-        const duration = getSettleDuration(
-          Math.abs(dragResult?.effectiveDistanceX || 0),
-          pointer.session.pageWidth,
-        );
-        await adapter.animateTo(0, {
-          duration,
-          onProgress: ({ pageWidth, progress }) => {
-            writeEdgeProgress(nextDirection, progress, pageWidth);
-          },
-        });
-        adapter.end();
-        restoreReadyPhase();
-        return;
-      }
-
-      const neighborReady =
-        delta === 1 ? pointer.session.canNext : pointer.session.canPrevious;
-      if (!neighborReady) {
-        await adapter.animateTo(0, {
-          duration: PAGE_TURN_RULES.settleDurationMinMs,
-          onProgress: ({ pageWidth, progress }) => {
-            writeEdgeProgress(nextDirection, progress, pageWidth);
-          },
-        });
-        adapter.end();
-        const location = await readCurrentLocation(renditionRef.current).catch(() => null);
-        if (!isBoundary(location, nextDirection)) {
-          await runBasicNavigation(nextDirection);
+      try {
+        if (delta === 0) {
+          const duration = getSettleDuration(
+            Math.abs(dragResult?.effectiveDistanceX || 0),
+            pointer.session.pageWidth,
+          );
+          await adapter.animateTo(0, {
+            duration,
+            onProgress: ({ pageWidth, progress }) => {
+              writeEdgeProgress(nextDirection, progress, pageWidth);
+            },
+          });
+          if (!isCurrentOperation(operationVersion)) return;
+          adapter.end();
+          return;
         }
-        restoreReadyPhase();
-        return;
-      }
 
-      const remaining = Math.max(
-        0,
-        pointer.session.pageWidth - Math.abs(dragResult?.effectiveDistanceX || 0),
-      );
-      const waiter = createRelocationWait(
-        renditionRef.current,
-        () => adapter.isStableAt(delta),
-        PAGE_TURN_RULES.relocatedTimeoutMs,
-      );
-      relocationWaitRef.current = waiter;
-      const animation = await adapter.animateTo(delta, {
-        duration: getSettleDuration(remaining, pointer.session.pageWidth),
-        onProgress: ({ pageWidth, progress }) => {
-          writeEdgeProgress(nextDirection, progress, pageWidth);
-        },
-      });
-      const location = animation.status === 'completed' ? await waiter.promise : null;
-      if (!location || !adapter.isStableAt(delta)) {
-        waiter.cancel();
-        await adapter.recover();
-        enterBasic();
-      } else {
-        adapter.end();
+        const neighborReady =
+          delta === 1 ? pointer.session.canNext : pointer.session.canPrevious;
+        if (!neighborReady) {
+          await adapter.animateTo(0, {
+            duration: PAGE_TURN_RULES.settleDurationMinMs,
+            onProgress: ({ pageWidth, progress }) => {
+              writeEdgeProgress(nextDirection, progress, pageWidth);
+            },
+          });
+          if (!isCurrentOperation(operationVersion)) return;
+          adapter.end();
+          const location = await readCurrentLocation(renditionRef.current).catch(() => null);
+          if (!isCurrentOperation(operationVersion)) return;
+          if (!isBoundary(location, nextDirection)) {
+            await runBasicNavigation(nextDirection);
+            if (!isCurrentOperation(operationVersion)) return;
+          }
+          return;
+        }
+
+        const remaining = Math.max(
+          0,
+          pointer.session.pageWidth - Math.abs(dragResult?.effectiveDistanceX || 0),
+        );
+        const waiter = createRelocationWait(
+          renditionRef.current,
+          () => adapter.isStableAt(delta),
+          PAGE_TURN_RULES.relocatedTimeoutMs,
+        );
+        relocationWaitRef.current = waiter;
+        const animation = await adapter.animateTo(delta, {
+          duration: getSettleDuration(remaining, pointer.session.pageWidth),
+          onProgress: ({ pageWidth, progress }) => {
+            writeEdgeProgress(nextDirection, progress, pageWidth);
+          },
+        });
+        if (!isCurrentOperation(operationVersion)) {
+          waiter.cancel();
+          return;
+        }
+        const location = animation.status === 'completed' ? await waiter.promise : null;
+        if (!isCurrentOperation(operationVersion)) return;
+        if (!location || !adapter.isStableAt(delta)) {
+          waiter.cancel();
+          await adapter.recover();
+          if (!isCurrentOperation(operationVersion)) return;
+          enterBasic();
+        } else {
+          adapter.end();
+        }
+        if (relocationWaitRef.current === waiter) relocationWaitRef.current = null;
+      } finally {
+        if (isCurrentOperation(operationVersion)) restoreReadyPhase();
       }
-      relocationWaitRef.current = null;
-      restoreReadyPhase();
     };
 
     void settle();
@@ -478,6 +517,7 @@ export function usePageTurnController({
     clearDragFrame,
     enterBasic,
     finishPointer,
+    isCurrentOperation,
     onCenterTap,
     renditionRef,
     restoreReadyPhase,

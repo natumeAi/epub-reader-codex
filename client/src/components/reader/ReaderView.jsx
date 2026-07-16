@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { saveReadingProgress } from '../../api/readingApi.js';
 import { useEpubRendition } from '../../hooks/useEpubRendition.js';
 import { usePageProgress } from '../../hooks/usePageProgress.js';
+import { useReadingProgressPersistence } from '../../hooks/useReadingProgressPersistence.js';
 import { useReaderSettings } from '../../hooks/useReaderSettings.js';
 import { ReaderBottomBar } from './ReaderBottomBar.jsx';
 import { ReaderSettingsPanel } from './ReaderSettingsPanel.jsx';
 import { ReaderTopBar } from './ReaderTopBar.jsx';
 import { TocPanel } from './TocPanel.jsx';
 
-const SAVE_DEBOUNCE_MS = 2000;
 // Horizontal travel (px) past which a pointer gesture counts as a swipe, not a tap
 const SWIPE_THRESHOLD = 45;
 // Page-turn animation. Start the visual response before epub.js navigation,
@@ -134,8 +133,6 @@ export function ReaderView({ book, originRect, onClose }) {
   const containerRef = useRef(null);
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
-  const saveTimerRef = useRef(null);
-  const pendingProgressRef = useRef(null);
   const pointerRef = useRef(null);
   const animatingRef = useRef(false);
   const currentCfiRef = useRef(null);
@@ -201,26 +198,10 @@ export function ReaderView({ book, originRect, onClose }) {
     renditionRef,
   });
 
-  const flushSave = useCallback((progressData) => {
-    if (!book?.id || !progressData) return;
-    saveReadingProgress(book.id, progressData).catch(() => {});
-  }, [book?.id]);
-
-  const scheduleSave = useCallback((progressData) => {
-    pendingProgressRef.current = progressData;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      flushSave(pendingProgressRef.current);
-      pendingProgressRef.current = null;
-    }, SAVE_DEBOUNCE_MS);
-  }, [flushSave]);
-
-  const flushPendingChanges = useCallback(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    flushSave(pendingProgressRef.current);
-    flushPendingReaderSettings();
-    pendingProgressRef.current = null;
-  }, [flushPendingReaderSettings, flushSave]);
+  const {
+    enqueueProgress,
+    flushProgress,
+  } = useReadingProgressPersistence({ bookId: book?.id });
 
   const {
     currentHref,
@@ -234,8 +215,9 @@ export function ReaderView({ book, originRect, onClose }) {
     bookRef,
     containerRef,
     currentCfiRef,
+    enqueueProgress,
     error,
-    flushPendingChanges,
+    flushPendingReaderSettings,
     isClosingRef,
     isLoading,
     loadReaderSettings,
@@ -244,7 +226,6 @@ export function ReaderView({ book, originRect, onClose }) {
     renditionRef,
     resetPageProgress,
     resetReaderSettingsLoad,
-    scheduleSave,
     setError,
     setIsLoading,
     updatePageProgressFromLocation,
@@ -285,6 +266,7 @@ export function ReaderView({ book, originRect, onClose }) {
   const handleCloseClick = useCallback(() => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
+    void flushProgress({ keepalive: true });
 
     const targetEl = book?.id
       ? document.querySelector(`[data-book-id="${book.id}"] .book-cover`)
@@ -304,7 +286,7 @@ export function ReaderView({ book, originRect, onClose }) {
       setIsFallbackClosing(true);
       setTimeout(onClose, READER_FALLBACK_ANIM_MS);
     }
-  }, [book?.id, onClose]);
+  }, [book?.id, flushProgress, onClose]);
 
   const turnPage = useCallback(async (dir) => {
     const rendition = renditionRef.current;

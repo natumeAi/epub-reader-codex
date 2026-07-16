@@ -10,17 +10,10 @@ import {
 } from './fileStorage.js';
 import { deleteStoredCover, saveBookCover } from './coverStorage.js';
 import { parseEpubDetails } from './epubService.js';
+import { InvalidEpubError, validateEpubArchive } from './epubValidation.js';
 
 const booksStoragePrefix = 'data/books/';
 const coversStoragePrefix = 'data/covers/';
-const emptyMetadata = {
-  title: null,
-  author: null,
-  description: null,
-  publisher: null,
-  language: null,
-  identifier: null,
-};
 
 function nextShelfSortOrder(db) {
   return db
@@ -140,6 +133,17 @@ export function updateShelfBookOrder(db, bookIds) {
   return listBooks(db);
 }
 
+export async function inspectEpubFile(filePath, options = {}) {
+  if (!options.archiveValidated) validateEpubArchive(filePath, options.validationLimits);
+  if (options.epubDetails) return options.epubDetails;
+
+  try {
+    return await (options.parseDetails || parseEpubDetails)(filePath);
+  } catch (error) {
+    throw new InvalidEpubError('EPUB_PARSE', { cause: error });
+  }
+}
+
 export async function addBookFileToLibrary(db, filePath, options = {}) {
   if (!isEpubFileName(filePath)) {
     return null;
@@ -160,22 +164,12 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
   const fileName = options.fileName || path.basename(filePath);
   const storedPath = toStoredPath(filePath);
   const fallbackTitle = options.title ?? titleFromFileName(fileName);
-  let metadata = emptyMetadata;
-  let coverImage = null;
-  let hasParsedMetadata = false;
-
-  try {
-    const epubDetails = await parseEpubDetails(filePath);
-    metadata = epubDetails.metadata;
-    coverImage = epubDetails.coverImage;
-    hasParsedMetadata = true;
-  } catch {
-    metadata = emptyMetadata;
-  }
-
   const existing = db.prepare('SELECT * FROM books WHERE file_path = ?').get(storedPath);
-  const title = existing ? metadata.title || options.title || existing.title : metadata.title || fallbackTitle;
-  const author = hasParsedMetadata ? metadata.author : existing?.author;
+  const epubDetails = await inspectEpubFile(filePath, options);
+  const metadata = epubDetails.metadata;
+  const coverImage = epubDetails.coverImage;
+  const title = metadata.title || options.title || existing?.title || fallbackTitle;
+  const author = metadata.author;
   const coverPath = saveBookCover({
     bookFilePath: filePath,
     coverImage,
@@ -203,11 +197,11 @@ export async function addBookFileToLibrary(db, filePath, options = {}) {
       ).run({
         id: existing.id,
         title,
-        author: hasParsedMetadata ? metadata.author : existing.author,
-        description: hasParsedMetadata ? metadata.description : existing.description,
-        publisher: hasParsedMetadata ? metadata.publisher : existing.publisher,
-        language: hasParsedMetadata ? metadata.language : existing.language,
-        identifier: hasParsedMetadata ? metadata.identifier : existing.identifier,
+        author: metadata.author,
+        description: metadata.description,
+        publisher: metadata.publisher,
+        language: metadata.language,
+        identifier: metadata.identifier,
         fileName: displayFileName,
         fileSize: fileStat.size,
         coverPath,
@@ -336,15 +330,23 @@ function listEpubFilesRecursive(dir) {
   return files;
 }
 
-export async function syncBookDirectory(db) {
+export async function syncBookDirectory(db, options = {}) {
   ensureBookDirectory();
 
   const currentBookPaths = new Set();
   const filePaths = listEpubFilesRecursive(booksDir);
 
   for (const filePath of filePaths) {
-    currentBookPaths.add(toStoredPath(filePath));
-    await addBookFileToLibrary(db, filePath);
+    try {
+      const book = await addBookFileToLibrary(db, filePath, {
+        parseDetails: options.parseDetails,
+      });
+      if (book) currentBookPaths.add(toStoredPath(filePath));
+    } catch (error) {
+      if (!(error instanceof InvalidEpubError)) throw error;
+      console.warn(`Skipped invalid EPUB file ${path.resolve(filePath)} [${error.code}]`);
+      removeBookFileFromLibrary(db, filePath);
+    }
   }
 
   const trackedBooks = db

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import chokidar from 'chokidar';
 import { booksDir, ensureBookDirectory, isEpubFileName } from './fileStorage.js';
 import {
@@ -5,9 +6,10 @@ import {
   removeBookFileFromLibrary,
   syncBookDirectory,
 } from './bookLibrary.js';
+import { InvalidEpubError } from './epubValidation.js';
 
-function logSyncError(action, filePath, err) {
-  console.error(`Failed to ${action} EPUB file ${filePath}:`, err);
+function logSyncError(action, filePath, error) {
+  console.error(`Failed to ${action} EPUB file ${path.resolve(filePath)} [${error.code || 'UNEXPECTED_ERROR'}]`);
 }
 
 export function startBookDirectoryWatcher(db) {
@@ -28,8 +30,9 @@ export function startBookDirectoryWatcher(db) {
     if (isEpubFileName(filePath)) {
       try {
         await addBookFileToLibrary(db, filePath);
-      } catch (err) {
-        logSyncError('add', filePath, err);
+      } catch (error) {
+        if (error instanceof InvalidEpubError) removeBookFileFromLibrary(db, filePath);
+        logSyncError('add or update', filePath, error);
       }
     }
   });
@@ -38,8 +41,9 @@ export function startBookDirectoryWatcher(db) {
     if (isEpubFileName(filePath)) {
       try {
         await addBookFileToLibrary(db, filePath);
-      } catch (err) {
-        logSyncError('update', filePath, err);
+      } catch (error) {
+        if (error instanceof InvalidEpubError) removeBookFileFromLibrary(db, filePath);
+        logSyncError('add or update', filePath, error);
       }
     }
   });

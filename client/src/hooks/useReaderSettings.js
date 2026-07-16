@@ -404,6 +404,7 @@ async function applyReaderHorizontalMarginToRendition(rendition, horizontalMargi
 }
 
 export function useReaderSettings({
+  beforeRenditionMutation,
   containerRef,
   currentCfiRef,
   isReaderReady,
@@ -536,6 +537,7 @@ export function useReaderSettings({
   useEffect(() => {
     if (!isReaderReady) return undefined;
     const rendition = renditionRef.current;
+    beforeRenditionMutation?.();
     applyReaderSettings(rendition, readerSettingsRef.current);
 
     const timer = setTimeout(() => {
@@ -545,6 +547,7 @@ export function useReaderSettings({
     return () => clearTimeout(timer);
   }, [
     applyReaderSettings,
+    beforeRenditionMutation,
     isReaderReady,
     onSettingsReflow,
     readerSettings,
@@ -554,6 +557,7 @@ export function useReaderSettings({
   useEffect(() => {
     if (!isReaderReady) return;
     const rendition = renditionRef.current;
+    beforeRenditionMutation?.();
     applyReaderHorizontalMargin(
       rendition,
       horizontalMargin,
@@ -563,6 +567,7 @@ export function useReaderSettings({
       .catch(() => {});
   }, [
     applyReaderHorizontalMargin,
+    beforeRenditionMutation,
     currentCfiRef,
     horizontalMargin,
     isReaderReady,

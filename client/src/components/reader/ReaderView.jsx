@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEpubRendition } from '../../hooks/useEpubRendition.js';
 import { useModalDialog } from '../../hooks/useModalDialog.js';
+import { usePageTurnController } from '../../hooks/usePageTurnController.js';
 import { usePageProgress } from '../../hooks/usePageProgress.js';
 import { useReadingProgressPersistence } from '../../hooks/useReadingProgressPersistence.js';
 import { useReaderSettings } from '../../hooks/useReaderSettings.js';
@@ -10,13 +11,6 @@ import { ReaderSettingsPanel } from './ReaderSettingsPanel.jsx';
 import { ReaderTopBar } from './ReaderTopBar.jsx';
 import { TocPanel } from './TocPanel.jsx';
 
-// Horizontal travel (px) past which a pointer gesture counts as a swipe, not a tap
-const SWIPE_THRESHOLD = 45;
-// Page-turn animation. Start the visual response before epub.js navigation,
-// but do not let epub.js swap iframe contents before the current page leaves.
-const PAGE_SLIDE_OUT_MS = 80;
-const PAGE_SLIDE_IN_MS = 80;
-const PAGE_NAV_TIMEOUT_MS = 1200;
 // Open/close FLIP animation: overlay scales between the shelf cover rect and full screen.
 // Same duration/easing both directions to keep open/close symmetric.
 const READER_FLIP_ANIM_MS = 300;
@@ -24,96 +18,6 @@ const READER_FLIP_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const READER_COVER_FADE_MS = 200;
 // Fallback when the origin/target cover rect can't be found (e.g. off-screen).
 const READER_FALLBACK_ANIM_MS = 220;
-
-function wait(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function waitForNextPaint() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(resolve);
-    });
-  });
-}
-
-function waitForPageTurnAnimation(elements, fallbackMs) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const animatedElements = elements.filter(Boolean).filter((element) => {
-      const style = window.getComputedStyle(element);
-      return style.animationName !== 'none' && style.animationDuration !== '0s';
-    });
-
-    if (animatedElements.length === 0) {
-      wait(fallbackMs).then(resolve);
-      return;
-    }
-
-    const cleanups = [];
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      cleanups.forEach((cleanup) => cleanup());
-      resolve();
-    };
-
-    const timer = setTimeout(finish, fallbackMs + 160);
-    cleanups.push(() => clearTimeout(timer));
-
-    animatedElements.forEach((element) => {
-      const handleAnimationDone = (event) => {
-        if (event.target === element) finish();
-      };
-      element.addEventListener('animationend', handleAnimationDone);
-      element.addEventListener('animationcancel', handleAnimationDone);
-      cleanups.push(() => {
-        element.removeEventListener('animationend', handleAnimationDone);
-        element.removeEventListener('animationcancel', handleAnimationDone);
-      });
-    });
-  });
-}
-
-function waitForRelocated(rendition, timeoutMs) {
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer = null;
-
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      rendition.off?.('relocated', finish);
-      resolve();
-    };
-
-    rendition.on?.('relocated', finish);
-    timer = setTimeout(finish, timeoutMs);
-  });
-}
-
-async function getCurrentLocation(rendition) {
-  const location = rendition?.currentLocation?.();
-  if (!location) return null;
-  return typeof location.then === 'function' ? location : Promise.resolve(location);
-}
-
-function isAtPageBoundary(location, dir) {
-  return dir === 'next' ? Boolean(location?.atEnd) : Boolean(location?.atStart);
-}
-
-function schedulePageTurnFollowUp(callback) {
-  requestAnimationFrame(() => {
-    if (typeof window.requestIdleCallback === 'function') {
-      window.requestIdleCallback(callback, { timeout: 500 });
-      return;
-    }
-    setTimeout(callback, 80);
-  });
-}
 
 function isKeyboardEditingTarget(target) {
   if (!(target instanceof Element)) return false;
@@ -137,12 +41,14 @@ export function ReaderView({ book, originRect, onClose }) {
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const readerInitialFocusRef = useRef(null);
-  const pointerRef = useRef(null);
-  const animatingRef = useRef(false);
   const currentCfiRef = useRef(null);
   const originRectRef = useRef(originRect);
   const isClosingRef = useRef(false);
-  const pageTurnSheetRef = useRef(null);
+  const pageEdgeRef = useRef(null);
+  const cancelPageTurnRef = useRef(null);
+  const cancelBeforeRenditionMutation = useCallback(() => {
+    cancelPageTurnRef.current?.('settings');
+  }, []);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [chromeVisible, setChromeVisible] = useState(false);
@@ -150,8 +56,6 @@ export function ReaderView({ book, originRect, onClose }) {
   const [activePanel, setActivePanel] = useState(null);
   // Settings panel page: 'main' | 'font'
   const [settingsView, setSettingsView] = useState('main');
-  // Fixed page slide: current page moves immediately, then epub.js navigates while hidden.
-  const [pageTurn, setPageTurn] = useState(null);
   // Open/close FLIP animation state: the overlay transform collapses onto (or
   // expands from) the shelf cover rect captured at click time.
   const [flipTransform, setFlipTransform] = useState(() => (
@@ -197,6 +101,7 @@ export function ReaderView({ book, originRect, onClose }) {
     resetReaderSettingsLoad,
     themeOptions,
   } = useReaderSettings({
+    beforeRenditionMutation: cancelBeforeRenditionMutation,
     containerRef,
     currentCfiRef,
     isReaderReady: !isLoading && !error,
@@ -211,6 +116,7 @@ export function ReaderView({ book, originRect, onClose }) {
 
   const {
     currentHref,
+    pageTurnAdapter,
     progress,
     toc,
   } = useEpubRendition({
@@ -236,6 +142,41 @@ export function ReaderView({ book, originRect, onClose }) {
     setIsLoading,
     updatePageProgressFromLocation,
   });
+
+  const handleCenterTap = useCallback(() => {
+    setChromeVisible((visible) => {
+      if (visible) setActivePanel(null);
+      return !visible;
+    });
+  }, []);
+
+  const {
+    cancelPageTurn,
+    direction: pageTurnDirection,
+    handlePointerCancel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    phase: pageTurnPhase,
+    turnPage,
+  } = usePageTurnController({
+    adapter: pageTurnAdapter,
+    currentCfiRef,
+    disabled: Boolean(activePanel) || isLoading || Boolean(error),
+    edgeRef: pageEdgeRef,
+    onCenterTap: handleCenterTap,
+    reducedMotion,
+    renditionRef,
+  });
+
+  useEffect(() => {
+    cancelPageTurnRef.current = cancelPageTurn;
+    return () => {
+      if (cancelPageTurnRef.current === cancelPageTurn) {
+        cancelPageTurnRef.current = null;
+      }
+    };
+  }, [cancelPageTurn]);
 
   useEffect(() => {
     if (activePanel !== 'settings') {
@@ -271,6 +212,7 @@ export function ReaderView({ book, originRect, onClose }) {
   }, [reducedMotion]);
 
   const handleCloseClick = useCallback(() => {
+    cancelPageTurnRef.current?.('close');
     if (isClosingRef.current) return;
     isClosingRef.current = true;
     void flushProgress({ keepalive: true });
@@ -305,57 +247,6 @@ export function ReaderView({ book, originRect, onClose }) {
     open: true,
   });
 
-  const turnPage = useCallback(async (dir) => {
-    const rendition = renditionRef.current;
-    if (!rendition || animatingRef.current) return;
-    const nav = () => (dir === 'next' ? rendition.next() : rendition.prev());
-
-    animatingRef.current = true;
-    try {
-      const currentLocation = await getCurrentLocation(rendition).catch(() => null);
-      if (isAtPageBoundary(currentLocation, dir)) return;
-
-      if (reducedMotion) {
-        const relocated = waitForRelocated(rendition, PAGE_NAV_TIMEOUT_MS);
-        Promise.resolve(nav()).catch(() => {});
-        await relocated;
-        schedulePageTurnFollowUp(() => {
-          if (renditionRef.current === rendition && !isClosingRef.current) {
-            applyReaderSettings(rendition, readerSettingsRef.current);
-          }
-        });
-        return;
-      }
-
-      setPageTurn({ dir, phase: 'out', key: Date.now() });
-      await waitForNextPaint();
-      await waitForPageTurnAnimation(
-        [containerRef.current, pageTurnSheetRef.current],
-        PAGE_SLIDE_OUT_MS,
-      );
-
-      const relocated = waitForRelocated(rendition, PAGE_NAV_TIMEOUT_MS);
-      Promise.resolve(nav()).catch(() => {});
-      await relocated;
-
-      setPageTurn({ dir, phase: 'in', key: Date.now() });
-      await waitForNextPaint();
-      await waitForPageTurnAnimation(
-        [containerRef.current, pageTurnSheetRef.current],
-        PAGE_SLIDE_IN_MS,
-      );
-      setPageTurn(null);
-      schedulePageTurnFollowUp(() => {
-        if (renditionRef.current === rendition && !isClosingRef.current) {
-          applyReaderSettings(rendition, readerSettingsRef.current);
-        }
-      });
-    } finally {
-      setPageTurn(null);
-      animatingRef.current = false;
-    }
-  }, [applyReaderSettings, containerRef, readerSettingsRef, reducedMotion, renditionRef]);
-
   const goPrev = useCallback(() => turnPage('prev'), [turnPage]);
   const goNext = useCallback(() => turnPage('next'), [turnPage]);
 
@@ -381,41 +272,11 @@ export function ReaderView({ book, originRect, onClose }) {
   }, [activePanel, error, goNext, goPrev, isLoading]);
 
   const goToHref = useCallback((href) => {
+    cancelPageTurnRef.current?.('toc');
     if (!href) return;
     renditionRef.current?.display(href);
     setActivePanel(null);
   }, []);
-
-  const handlePointerDown = useCallback((event) => {
-    pointerRef.current = { x: event.clientX, y: event.clientY };
-  }, []);
-
-  const handlePointerUp = useCallback((event) => {
-    const start = pointerRef.current;
-    pointerRef.current = null;
-    if (!start) return;
-
-    const dx = event.clientX - start.x;
-    // Horizontal swipe: turn page regardless of where it started
-    if (Math.abs(dx) >= SWIPE_THRESHOLD) {
-      if (dx < 0) goNext();
-      else goPrev();
-      return;
-    }
-
-    // Tap: split reading area into left / center / right thirds
-    const { left, width } = event.currentTarget.getBoundingClientRect();
-    const zone = (event.clientX - left) / width;
-    if (zone < 1 / 3) goPrev();
-    else if (zone > 2 / 3) goNext();
-    else {
-      // Center tap toggles chrome; hiding chrome also dismisses any open panel
-      setChromeVisible((v) => {
-        if (v) setActivePanel(null);
-        return !v;
-      });
-    }
-  }, [goPrev, goNext]);
 
   const overlayStyle = {
     '--reader-bg': readerTheme.background,
@@ -451,7 +312,8 @@ export function ReaderView({ book, originRect, onClose }) {
         'reader-overlay',
         `reader-theme-${readerThemeId}`,
         chromeVisible ? '' : 'reader-chrome-hidden',
-        pageTurn ? 'reader-page-turning' : '',
+        pageTurnPhase ? 'reader-page-turn-' + pageTurnPhase : '',
+        pageTurnDirection ? 'reader-page-turn-direction-' + pageTurnDirection : '',
         isFallbackClosing ? 'reader-fallback-closing' : '',
       ].filter(Boolean).join(' ')}
       style={overlayStyle}
@@ -492,35 +354,28 @@ export function ReaderView({ book, originRect, onClose }) {
         )}
         <div
           ref={containerRef}
-          className={[
-            'reader-epub-container',
-            pageTurn ? `reader-page-slide-${pageTurn.phase}` : '',
-            pageTurn ? `reader-page-slide-${pageTurn.dir}` : '',
-          ].filter(Boolean).join(' ')}
+          className="reader-epub-container"
           style={readerViewportStyle}
         />
-        {pageTurn && (
-          <div
-            ref={pageTurnSheetRef}
-            className={[
-              'reader-page-turn-sheet',
-              `reader-page-turn-sheet-${pageTurn.phase}`,
-              `reader-page-turn-sheet-${pageTurn.dir}`,
-            ].join(' ')}
-            aria-hidden="true"
-          />
-        )}
+        <div
+          ref={pageEdgeRef}
+          className={[
+            'reader-page-edge',
+            pageTurnDirection ? 'reader-page-edge-' + pageTurnDirection : '',
+          ].filter(Boolean).join(' ')}
+          aria-hidden="true"
+        />
       </div>
 
       {/* Gesture layer: tap thirds (prev / toggle chrome / next) + horizontal swipe */}
-      {!isLoading && !error && (
-        <div
-          className="reader-gesture-layer"
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          aria-hidden="true"
-        />
-      )}
+      <div
+        className="reader-gesture-layer"
+        onPointerCancel={handlePointerCancel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        aria-hidden="true"
+      />
 
       {!isLoading && !error && (
         <span className="reader-page-progress" aria-label={`页码 ${pageProgressLabel}`}>

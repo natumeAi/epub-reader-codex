@@ -4,13 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReaderView } from './ReaderView.jsx';
 
 const mocks = vi.hoisted(() => ({
+  cancelPageTurn: vi.fn(),
   enqueueProgress: vi.fn(),
   flushPendingReaderSettings: vi.fn(),
   flushProgress: vi.fn(),
+  handlePointerCancel: vi.fn(),
+  handlePointerDown: vi.fn(),
+  handlePointerMove: vi.fn(),
+  handlePointerUp: vi.fn(),
   next: vi.fn(),
   onClose: vi.fn(),
   relocatedHandler: null,
+  turnPage: vi.fn(),
   useEpubRendition: vi.fn(),
+  usePageTurnController: vi.fn(),
   useReadingProgressPersistence: vi.fn(),
   useReducedMotion: vi.fn(() => true),
 }));
@@ -20,6 +27,9 @@ vi.mock('../../hooks/useReducedMotion.js', () => ({
 }));
 vi.mock('../../hooks/useEpubRendition.js', () => ({
   useEpubRendition: mocks.useEpubRendition,
+}));
+vi.mock('../../hooks/usePageTurnController.js', () => ({
+  usePageTurnController: mocks.usePageTurnController,
 }));
 vi.mock('../../hooks/usePageProgress.js', () => ({
   usePageProgress: () => ({
@@ -67,14 +77,35 @@ vi.mock('./ReaderTopBar.jsx', () => ({
 
 describe('ReaderView behavior', () => {
   beforeEach(() => {
+    mocks.cancelPageTurn.mockClear();
     mocks.enqueueProgress.mockClear();
     mocks.flushPendingReaderSettings.mockClear();
     mocks.flushProgress.mockClear();
+    mocks.handlePointerCancel.mockClear();
+    mocks.handlePointerDown.mockClear();
+    mocks.handlePointerMove.mockClear();
+    mocks.handlePointerUp.mockClear();
     mocks.next.mockClear();
     mocks.onClose.mockClear();
     mocks.relocatedHandler = null;
+    mocks.turnPage.mockClear();
+    mocks.usePageTurnController.mockReset().mockReturnValue({
+      cancelPageTurn: mocks.cancelPageTurn,
+      direction: 'next',
+      handlePointerCancel: mocks.handlePointerCancel,
+      handlePointerDown: mocks.handlePointerDown,
+      handlePointerMove: mocks.handlePointerMove,
+      handlePointerUp: mocks.handlePointerUp,
+      phase: 'idle',
+      turnPage: mocks.turnPage,
+    });
     mocks.useEpubRendition.mockReset();
-    mocks.useEpubRendition.mockReturnValue({ currentHref: null, progress: 0, toc: [] });
+    mocks.useEpubRendition.mockReturnValue({
+      currentHref: null,
+      pageTurnAdapter: { name: 'adapter' },
+      progress: 0,
+      toc: [],
+    });
     mocks.useReadingProgressPersistence.mockReset();
     mocks.useReadingProgressPersistence.mockReturnValue({
       enqueueProgress: mocks.enqueueProgress,
@@ -94,41 +125,46 @@ describe('ReaderView behavior', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(mocks.flushProgress).toHaveBeenCalledWith({ keepalive: true });
+    expect(mocks.cancelPageTurn).toHaveBeenCalled();
   });
 
-  it('navigates once without animation waits and Escape closes immediately', async () => {
-    vi.useFakeTimers();
+  it('routes keyboard and pointer input through the page-turn controller', async () => {
     mocks.useEpubRendition.mockImplementation((args) => {
       useEffect(() => {
-        args.renditionRef.current = {
-          currentLocation: () => ({ atEnd: false, atStart: false }),
-          next: () => {
-            mocks.next();
-            queueMicrotask(() => mocks.relocatedHandler?.());
-          },
-          off: vi.fn(),
-          on: (name, handler) => {
-            if (name === 'relocated') mocks.relocatedHandler = handler;
-          },
-        };
         args.setIsLoading(false);
-      }, [args.renditionRef, args.setIsLoading]);
-      return { currentHref: null, progress: 0.2, toc: [] };
+      }, [args.setIsLoading]);
+      return {
+        currentHref: null,
+        pageTurnAdapter: { name: 'adapter' },
+        progress: 0.2,
+        toc: [],
+      };
     });
 
-    render(<ReaderView book={{ id: 1, title: 'Book' }} onClose={mocks.onClose} originRect={null} />);
-    await act(async () => { await Promise.resolve(); });
+    render(<ReaderView book={{ id: 1, title: 'Book' }} onClose={mocks.onClose} />);
     const gestureLayer = document.querySelector('.reader-gesture-layer');
     expect(gestureLayer).not.toBeNull();
 
-    await act(async () => {
-      fireEvent.keyDown(window, { key: 'ArrowRight' });
-      await Promise.resolve();
-      await Promise.resolve();
+    fireEvent.pointerDown(gestureLayer, {
+      clientX: 300, clientY: 300, pointerId: 1, pointerType: 'touch',
     });
-    expect(mocks.next).toHaveBeenCalledTimes(1);
+    fireEvent.pointerMove(gestureLayer, {
+      clientX: 200, clientY: 300, pointerId: 1, pointerType: 'touch',
+    });
+    fireEvent.pointerUp(gestureLayer, {
+      clientX: 180, clientY: 300, pointerId: 1, pointerType: 'touch',
+    });
+    fireEvent.pointerCancel(gestureLayer, {
+      pointerId: 1, pointerType: 'touch',
+    });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
 
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
-    expect(mocks.onClose).toHaveBeenCalledTimes(1);
+    expect(mocks.handlePointerDown).toHaveBeenCalledTimes(1);
+    expect(mocks.handlePointerMove).toHaveBeenCalledTimes(1);
+    expect(mocks.handlePointerUp).toHaveBeenCalledTimes(1);
+    expect(mocks.handlePointerCancel).toHaveBeenCalledTimes(1);
+    expect(mocks.turnPage).toHaveBeenCalledWith('next');
+    expect(document.querySelector('.reader-page-turn-sheet')).toBeNull();
+    expect(document.querySelectorAll('.reader-page-edge')).toHaveLength(1);
   });
 });

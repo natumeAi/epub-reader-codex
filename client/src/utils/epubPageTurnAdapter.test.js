@@ -1,11 +1,63 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createEpubPageTurnAdapter,
   toLogicalScroll,
   toPhysicalScroll,
 } from './epubPageTurnAdapter.js';
 
+function createRect({ left = 0, top = 0, width = 100, height = 375 } = {}) {
+  return {
+    bottom: top + height,
+    height,
+    left,
+    right: left + width,
+    top,
+    width,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  };
+}
+
+function createFakeAnimation() {
+  return {
+    cancel: vi.fn(),
+    finished: Promise.resolve(),
+    startTime: null,
+  };
+}
+
+function installFakeWaapi(element, animations = []) {
+  element.animate = vi.fn(() => {
+    const animation = createFakeAnimation();
+    animations.push(animation);
+    return animation;
+  });
+  element.getAnimations = vi.fn(() => []);
+  return element;
+}
+
+function createViewElement(container, geometry, animations) {
+  const element = installFakeWaapi(document.createElement('div'), animations);
+  element.className = 'epub-view';
+  element.getBoundingClientRect = vi.fn(() => createRect(geometry));
+  container.appendChild(element);
+  return element;
+}
+
 function createRendition(overrides = {}) {
+  const viewContainer = document.createElement('div');
+  viewContainer.dataset.pageTurnAdapterFixture = '';
+  document.body.appendChild(viewContainer);
+  const animations = [];
+  const viewElements = [
+    createViewElement(viewContainer, { left: 0 }, animations),
+    createViewElement(viewContainer, { left: 100 }, animations),
+  ];
+  const displayedViews = viewElements.map((element) => ({
+    displayed: true,
+    element,
+  }));
   const scroller = {
     clientWidth: 375,
     scrollLeft: 100,
@@ -26,6 +78,9 @@ function createRendition(overrides = {}) {
     },
     snapper: {},
     updateLayout: vi.fn(),
+    views: {
+      displayed: vi.fn(() => displayedViews),
+    },
   };
   return {
     rendition: {
@@ -35,9 +90,19 @@ function createRendition(overrides = {}) {
     },
     manager,
     scroller,
+    animations,
+    displayedViews,
+    viewContainer,
+    viewElements,
     ...overrides,
   };
 }
+
+afterEach(() => {
+  document.querySelectorAll('[data-page-turn-adapter-fixture]').forEach((element) => {
+    element.remove();
+  });
+});
 
 describe('epub page-turn adapter core', () => {
   it('normalizes LTR, RTL default, and RTL negative coordinates', () => {
@@ -84,6 +149,7 @@ describe('epub page-turn adapter core', () => {
     const adapter = createEpubPageTurnAdapter(rendition);
     expect(adapter.begin('stable-cfi')).toMatchObject({
       available: true,
+      backend: 'scroll',
       origin: 100,
       pageWidth: 100,
     });
@@ -375,23 +441,135 @@ it('does not schedule an extra frame when diagnostics are disabled', async () =>
   expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(2);
 });
 
-it('reports forced compositor as unavailable before Phase B', () => {
-  const fixture = createRendition();
-  const diagnostics = createDiagnosticsSpy();
-  const adapter = createEpubPageTurnAdapter(fixture.rendition, {
-    debugConfig: { enabled: true, forceBackend: 'compositor' },
-    diagnostics,
+describe('forced compositor session preparation', () => {
+  it.each([
+    ['zero views', 'views', ({ manager }) => {
+      manager.views.displayed.mockReturnValue([]);
+    }],
+    ['disconnected view', 'view-disconnected', ({ viewElements }) => {
+      viewElements[0].remove();
+    }],
+    ['replaced view', 'view-disconnected', ({ viewElements }) => {
+      const replacement = installFakeWaapi(document.createElement('div'));
+      replacement.className = 'epub-view';
+      viewElements[0].replaceWith(replacement);
+    }],
+    ['business transform', 'view-transform', ({ viewElements }) => {
+      viewElements[0].style.transform = 'scale(0.9)';
+    }],
+    ['active animation', 'view-animation', ({ viewElements }) => {
+      viewElements[0].getAnimations.mockReturnValue([createFakeAnimation()]);
+    }],
+    ['missing animate', 'waapi', ({ viewElements }) => {
+      viewElements[0].animate = undefined;
+    }],
+    ['invalid geometry', 'geometry', ({ viewElements }) => {
+      viewElements[0].getBoundingClientRect.mockReturnValue(createRect({ width: 0 }));
+    }],
+  ])('reports %s as deterministic %s without changing styles', (_name, reason, mutate) => {
+    const fixture = createRendition();
+    const edgeElement = installFakeWaapi(document.createElement('div'));
+    edgeElement.style.transform = 'scale(0.8)';
+    edgeElement.style.willChange = 'opacity';
+    fixture.viewElements[0].style.willChange = 'contents';
+    const originalViewStyles = fixture.viewElements.map((element) => ({
+      transform: element.style.transform,
+      willChange: element.style.willChange,
+    }));
+    mutate(fixture);
+    const expectedViewStyles = fixture.viewElements.map((element) => ({
+      transform: element.style.transform,
+      willChange: element.style.willChange,
+    }));
+    const diagnostics = createDiagnosticsSpy();
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+      diagnostics,
+    });
+
+    expect(adapter.inspect()).toEqual({ available: false, reason });
+    expect(adapter.begin('stable-cfi', { edgeElement })).toBeNull();
+    expect(fixture.viewElements.map((element) => ({
+      transform: element.style.transform,
+      willChange: element.style.willChange,
+    }))).toEqual(expectedViewStyles);
+    expect(edgeElement.style.transform).toBe('scale(0.8)');
+    expect(edgeElement.style.willChange).toBe('opacity');
+    expect(diagnostics.begin).not.toHaveBeenCalled();
+
+    if (reason !== 'view-transform') {
+      expect(expectedViewStyles).toEqual(originalViewStyles);
+    }
   });
 
-  expect(adapter.inspect()).toEqual({
-    available: false,
-    reason: 'forced-compositor-unavailable',
+  it.each(['end', 'cancel', 'destroy'])(
+    'prepares only displayed views and restores exact styles on %s',
+    (cleanupMethod) => {
+      const fixture = createRendition();
+      fixture.viewElements[0].style.willChange = 'contents';
+      fixture.viewElements[1].style.willChange = 'opacity';
+      const undisplayedElement = createViewElement(
+        fixture.viewContainer,
+        { left: 200 },
+        fixture.animations,
+      );
+      undisplayedElement.style.willChange = 'scroll-position';
+      const edgeElement = installFakeWaapi(document.createElement('div'));
+      edgeElement.style.transform = 'scale(0.8)';
+      edgeElement.style.willChange = 'opacity';
+      const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+        debugConfig: { enabled: true, forceBackend: 'compositor' },
+      });
+
+      expect(adapter.begin('stable-cfi', { edgeElement })).toMatchObject({
+        available: true,
+        backend: 'compositor',
+        origin: 100,
+        pageWidth: 100,
+      });
+      expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+      expect(fixture.viewElements.map((element) => element.style.willChange)).toEqual([
+        'transform',
+        'transform',
+      ]);
+      expect(edgeElement.style.transform).toBe('scale(0.8)');
+      expect(edgeElement.style.willChange).toBe('transform');
+      expect(undisplayedElement.style.willChange).toBe('scroll-position');
+
+      adapter[cleanupMethod]();
+      expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+      expect(fixture.viewElements.map((element) => element.style.willChange)).toEqual([
+        'contents',
+        'opacity',
+      ]);
+      expect(edgeElement.style.transform).toBe('scale(0.8)');
+      expect(edgeElement.style.willChange).toBe('opacity');
+      expect(undisplayedElement.style.willChange).toBe('scroll-position');
+    },
+  );
+
+  it('restores compositor styles before recovering the stable CFI', async () => {
+    const fixture = createRendition();
+    fixture.viewElements[0].style.willChange = 'contents';
+    const edgeElement = installFakeWaapi(document.createElement('div'));
+    edgeElement.style.transform = 'scale(0.8)';
+    edgeElement.style.willChange = 'opacity';
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    expect(adapter.begin('stable-cfi', { edgeElement })).toMatchObject({
+      available: true,
+      backend: 'compositor',
+    });
+    await expect(adapter.recover()).resolves.toBe(true);
+
+    expect(fixture.rendition.display).toHaveBeenCalledWith('stable-cfi');
+    expect(fixture.viewElements[0].style.willChange).toBe('contents');
+    expect(fixture.viewElements[1].style.willChange).toBe('');
+    expect(edgeElement.style.transform).toBe('scale(0.8)');
+    expect(edgeElement.style.willChange).toBe('opacity');
   });
-  expect(adapter.begin('stable-cfi', {
-    action: 'tap-next',
-    inputTime: 75,
-  })).toBeNull();
-  expect(diagnostics.begin).not.toHaveBeenCalled();
 });
 
 it('cancels rAF, restores inline styles, and recovers the stable CFI', async () => {

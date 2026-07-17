@@ -839,7 +839,13 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       });
     }
     session.diagnosticAction = action;
-    diagnostics.markAnimationStart(session.diagnosticRecordId, startTime);
+    if (session.backend === 'compositor') {
+      diagnostics.markAnimationStart(session.diagnosticRecordId, startTime, {
+        sampleFrames: true,
+      });
+    } else {
+      diagnostics.markAnimationStart(session.diagnosticRecordId, startTime);
+    }
     return session.diagnosticRecordId;
   }
 

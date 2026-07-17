@@ -130,6 +130,7 @@ export function createPageTurnDiagnostics({
         if (activeRecords.get(recordId) !== record || destroyed) return;
 
         record.samplerFrameId = null;
+        markVisualUpdate(recordId, timestamp);
         frame(recordId, timestamp);
         scheduleSample(recordId, record);
       });

@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { inspectPageTurnDiagnosticRecords } from './page-turn-verification-assertions.mjs';
 import { prepareReaderVerification } from './reader-verification-environment.mjs';
 
 const PAGE_TURN_DEBUG_STORAGE_KEY = 'epub-reader:page-turn-debug';
@@ -247,11 +248,18 @@ async function clearDiagnostics(page) {
   await page.evaluate(() => window.__EPUB_READER_PAGE_TURN_DIAGNOSTICS__?.clear?.());
 }
 
-function requireDiagnostics(records, expectedActions, expectedBackend, scenario) {
-  const actions = records.map((record) => record.action);
-  const invalidRecord = records.find((record) => (
-    record.backend !== expectedBackend || !Number.isFinite(record.endTime)
-  ));
+function requireDiagnostics(
+  records,
+  expectedActions,
+  expectedBackend,
+  scenario,
+  options,
+) {
+  const { actions, invalidRecord } = inspectPageTurnDiagnosticRecords(
+    records,
+    expectedBackend,
+    options,
+  );
   assertScenario(
     JSON.stringify(actions) === JSON.stringify(expectedActions) && !invalidRecord,
     `${scenario} diagnostics`,
@@ -565,7 +573,13 @@ async function runChapterBoundary() {
       const end = await readReaderState(page);
       const records = await readStableDiagnostics(page);
 
-      requireDiagnostics(records, ['drag', 'tap-next'], 'compositor', 'Chapter-boundary turn');
+      requireDiagnostics(
+        records,
+        ['drag', 'tap-next'],
+        'compositor',
+        'Chapter-boundary turn',
+        { allowCancelledActions: ['drag'] },
+      );
       assertScenario(
         temporaryStylesAreCleared(end),
         'Chapter-boundary cleanup',

@@ -769,6 +769,11 @@ describe('forced compositor session preparation', () => {
       backend: 'compositor',
       inputTime: 75,
     });
+    expect(diagnostics.markAnimationStart).toHaveBeenCalledWith(
+      'record-2',
+      expect.any(Number),
+      { sampleFrames: true },
+    );
 
     adapter.end();
   });
@@ -783,6 +788,7 @@ describe('forced compositor session preparation', () => {
     const adapter = createEpubPageTurnAdapter(fixture.rendition, {
       ...frames.environment,
       debugConfig: { enabled: true, forceBackend: 'compositor' },
+      diagnostics: createDiagnosticsSpy(),
     });
 
     expect(adapter.begin('stable-cfi', { edgeElement })).toMatchObject({
@@ -852,6 +858,7 @@ describe('forced compositor session preparation', () => {
       const adapter = createEpubPageTurnAdapter(fixture.rendition, {
         ...frames.environment,
         debugConfig: { enabled: true, forceBackend: 'compositor' },
+        diagnostics: createDiagnosticsSpy(),
         timeline: { currentTime: 250 },
       });
 
@@ -1152,6 +1159,7 @@ describe('forced compositor session preparation', () => {
     const adapter = createEpubPageTurnAdapter(fixture.rendition, {
       ...frames.environment,
       debugConfig: { enabled: true, forceBackend: 'compositor' },
+      diagnostics: createDiagnosticsSpy(),
     });
 
     adapter.begin('stable-cfi', { edgeElement });

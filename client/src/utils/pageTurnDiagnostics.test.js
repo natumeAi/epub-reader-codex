@@ -194,7 +194,11 @@ describe('page-turn diagnostics', () => {
 
     diagnostics.finish(finishedId, 20);
     expect(cancelAnimationFrame).toHaveBeenCalledWith(2);
-    expect(diagnostics.getRecords()[0].frameTimestamps).toEqual([16]);
+    expect(diagnostics.getRecords()[0]).toMatchObject({
+      firstVisualTime: 16,
+      frameTimestamps: [16],
+      inputLatencyMs: 16,
+    });
 
     const cancelledId = diagnostics.begin({
       action: 'rollback',

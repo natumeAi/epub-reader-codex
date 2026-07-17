@@ -736,6 +736,126 @@ describe('forced compositor session preparation', () => {
 
     adapter.end();
   });
+
+  it.each([
+    ['LTR', 'ltr', 'negative', 100, 200],
+    ['RTL default', 'rtl', 'default', 900, 800],
+    ['RTL negative', 'rtl', 'negative', -100, -200],
+  ])(
+    'commits one compositor page with one atomic %s scroll write',
+    async (_name, direction, rtlScrollType, initialPhysical, expectedPhysical) => {
+      const fixture = createRendition();
+      fixture.manager.settings.direction = direction;
+      fixture.manager.settings.rtlScrollType = rtlScrollType;
+      fixture.viewElements[0].style.willChange = 'contents';
+      fixture.viewElements[1].style.willChange = 'opacity';
+      const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+      edgeElement.style.transform = 'scale(0.8)';
+      edgeElement.style.willChange = 'opacity';
+      fixture.rendition.next = vi.fn();
+      fixture.rendition.prev = vi.fn();
+      let scrollLeft = initialPhysical;
+      const writes = [];
+      const writeScrollLeft = vi.fn((value) => {
+        writes.push({
+          animationCancelCounts: fixture.animations.map((animation) => (
+            animation.cancel.mock.calls.length
+          )),
+          value,
+          viewWillChange: fixture.viewElements.map((element) => (
+            element.style.willChange
+          )),
+        });
+        scrollLeft = value;
+      });
+      Object.defineProperty(fixture.scroller, 'scrollLeft', {
+        configurable: true,
+        get: () => scrollLeft,
+        set: writeScrollLeft,
+      });
+      const frames = createFrameDriver();
+      const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+        ...frames.environment,
+        debugConfig: { enabled: true, forceBackend: 'compositor' },
+        timeline: { currentTime: 250 },
+      });
+
+      expect(adapter.begin('stable-cfi', {
+        action: 'tap-next',
+        edgeElement,
+        inputTime: 40,
+      })).toMatchObject({
+        backend: 'compositor',
+        origin: 100,
+        pageWidth: 100,
+      });
+      const commit = adapter.animateTo(1, {
+        action: 'commit',
+        duration: 180,
+        inputTime: 75,
+      });
+      let commitResolved = false;
+      void commit.then(() => { commitResolved = true; });
+
+      expect(fixture.animations).toHaveLength(3);
+      const viewKeyframes = fixture.viewElements[0].animate.mock.calls[0][0];
+      const edgeKeyframes = edgeElement.animate.mock.calls[0][0];
+      expect(viewKeyframes[0].transform).toBe('translate3d(0px, 0, 0)');
+      expect(viewKeyframes.at(-1).transform).toBe('translate3d(-100px, 0, 0)');
+      expect(edgeKeyframes[0].transform).toBe('translate3d(100px, 0, 0)');
+      expect(edgeKeyframes.at(-1).transform).toBe('translate3d(0px, 0, 0)');
+      expect(fixture.viewElements[0].animate.mock.calls[0][1]).toEqual({
+        duration: 180,
+        easing: 'linear',
+        fill: 'forwards',
+      });
+      expect(writeScrollLeft).not.toHaveBeenCalled();
+      expect(frames.environment.requestAnimationFrame).not.toHaveBeenCalled();
+      expect(fixture.rendition.reportLocation).not.toHaveBeenCalled();
+
+      fixture.animations.forEach((animation) => animation.finish());
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(commitResolved).toBe(false);
+      expect(writeScrollLeft).not.toHaveBeenCalled();
+      expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(1);
+      expect(fixture.animations.every((animation) => (
+        animation.cancel.mock.calls.length === 0
+      ))).toBe(true);
+
+      frames.step(16);
+      await expect(commit).resolves.toEqual({
+        status: 'completed',
+        backend: 'compositor',
+      });
+
+      expect(writeScrollLeft).toHaveBeenCalledTimes(1);
+      expect(writes).toEqual([{
+        animationCancelCounts: [0, 0, 0],
+        value: expectedPhysical,
+        viewWillChange: ['transform', 'transform'],
+      }]);
+      expect(scrollLeft).toBe(expectedPhysical);
+      expect(fixture.animations.every((animation) => (
+        animation.cancel.mock.calls.length === 1
+      ))).toBe(true);
+      expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+      expect(fixture.viewElements.map((element) => element.style.willChange)).toEqual([
+        'contents',
+        'opacity',
+      ]);
+      expect(edgeElement.style.transform).toBe('scale(0.8)');
+      expect(edgeElement.style.willChange).toBe('opacity');
+      expect(adapter.isStableAt(1)).toBe(true);
+      expect(adapter.isStableAligned()).toBe(true);
+      expect(fixture.rendition.reportLocation).not.toHaveBeenCalled();
+      expect(fixture.rendition.next).not.toHaveBeenCalled();
+      expect(fixture.rendition.prev).not.toHaveBeenCalled();
+
+      adapter.end();
+    },
+  );
 });
 
 it('cancels rAF, restores inline styles, and recovers the stable CFI', async () => {

@@ -397,9 +397,21 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     });
   }
 
+  function disconnectSessionWatchers(activeSession) {
+    activeSession.watchers?.forEach((watcher) => {
+      try {
+        watcher.disconnect();
+      } catch {
+        // Watcher cleanup must not block restoring the stable page.
+      }
+    });
+    activeSession.watchers?.splice(0);
+  }
+
   function releaseSession(activeSession = session) {
     if (!activeSession) return;
     cancelAnimationGroup(activeSession.animations);
+    disconnectSessionWatchers(activeSession);
     restoreSessionStyles(activeSession);
     activeSession.views?.splice(0);
     activeSession.edgeSnapshot = null;
@@ -523,6 +535,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       edgeOffset: null,
       edgeSnapshot: backend === 'compositor' ? compositor.edgeSnapshot : null,
       boundaryOffset: 0,
+      commitFrameId: null,
       diagnosticAction: action,
       diagnosticRecordId: null,
       generation: ++sessionGeneration,
@@ -532,6 +545,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       previousTransform: capability.scroller.style.transform || '',
       views: backend === 'compositor' ? compositor.views : [],
       visualOffset: 0,
+      watchers: [],
     };
     if (!prepareSessionStyles(session)) {
       session = null;
@@ -649,47 +663,97 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     return session.diagnosticRecordId;
   }
 
-  function animateCompositorRollback(options = {}) {
+  function isCurrentCompositorSession(activeSession, generation) {
+    return session === activeSession &&
+      !destroyed &&
+      activeSession.generation === generation;
+  }
+
+  function restoreCompositorVisual(activeSession) {
+    cancelAnimationGroup(activeSession.animations);
+    restoreSessionStyles(activeSession);
+    activeSession.visualOffset = 0;
+    activeSession.boundaryOffset = 0;
+    activeSession.edgeOffset = null;
+  }
+
+  function commitCompositorPage(
+    activeSession,
+    generation,
+    pageDelta,
+    diagnosticRecordId,
+  ) {
+    return new Promise((resolve) => {
+      activeSession.commitFrameId = requestFrame((timestamp) => {
+        activeSession.commitFrameId = null;
+        if (!isCurrentCompositorSession(activeSession, generation)) {
+          cancelAnimationGroup(activeSession.animations);
+          resolve(result('cancelled', 'compositor'));
+          return;
+        }
+
+        const frameTime = Number.isFinite(timestamp) ? timestamp : now();
+        disconnectSessionWatchers(activeSession);
+        writeLogical(
+          activeSession.origin + pageDelta * activeSession.pageWidth,
+          activeSession,
+        );
+        restoreCompositorVisual(activeSession);
+        finishDiagnostic(diagnosticRecordId, frameTime);
+        resolve(result('completed', 'compositor'));
+      });
+    });
+  }
+
+  function animateCompositorTo(pageDelta, options = {}) {
     const activeSession = session;
+    if (
+      (pageDelta === 1 && !activeSession.canNext) ||
+      (pageDelta === -1 && !activeSession.canPrevious)
+    ) {
+      return Promise.resolve(result('unavailable', 'compositor'));
+    }
+
     const duration = Math.max(0, Number(options.duration) || 0);
     const startTime = now();
     const from = activeSession.visualOffset;
-    const direction = activeSession.edgeDirection || (from < 0 ? 'next' : 'prev');
+    const targetOffset = -pageDelta * activeSession.pageWidth;
+    const direction = pageDelta === 0
+      ? activeSession.edgeDirection || (from < 0 ? 'next' : 'prev')
+      : pageDelta > 0 ? 'next' : 'prev';
     setEdgeDirection(direction);
-    const diagnosticRecordId = beginAnimationDiagnostics(0, options, startTime);
+    const diagnosticRecordId = beginAnimationDiagnostics(pageDelta, options, startTime);
     const group = runAnimationGroup({
       direction,
       duration,
       from,
-      to: 0,
+      to: targetOffset,
     });
 
     return group.then(
       ({ activeSession: completedSession, generation }) => {
-        if (
-          session !== completedSession ||
-          destroyed ||
-          completedSession.generation !== generation
-        ) {
+        if (!isCurrentCompositorSession(completedSession, generation)) {
           cancelAnimationGroup(completedSession.animations);
           return result('cancelled', 'compositor');
         }
 
-        cancelAnimationGroup(completedSession.animations);
-        restoreSessionStyles(completedSession);
-        completedSession.visualOffset = 0;
-        completedSession.boundaryOffset = 0;
-        completedSession.edgeOffset = null;
+        completedSession.visualOffset = targetOffset;
+        if (pageDelta !== 0) {
+          return commitCompositorPage(
+            completedSession,
+            generation,
+            pageDelta,
+            diagnosticRecordId,
+          );
+        }
+
+        restoreCompositorVisual(completedSession);
         finishDiagnostic(diagnosticRecordId);
         return result('completed', 'compositor');
       },
       () => {
         if (session === activeSession) {
-          cancelAnimationGroup(activeSession.animations);
-          restoreSessionStyles(activeSession);
-          activeSession.visualOffset = 0;
-          activeSession.boundaryOffset = 0;
-          activeSession.edgeOffset = null;
+          restoreCompositorVisual(activeSession);
           cancelDiagnostic(diagnosticRecordId, 'unavailable');
         }
         return result('unavailable', 'compositor');
@@ -702,9 +766,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       return Promise.resolve(result('unavailable', session?.backend || 'scroll'));
     }
     if (session.backend === 'compositor') {
-      return pageDelta === 0
-        ? animateCompositorRollback(options)
-        : Promise.resolve(result('unavailable', 'compositor'));
+      return animateCompositorTo(pageDelta, options);
     }
     if (
       (pageDelta === 1 && !session.canNext) ||

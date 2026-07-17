@@ -162,6 +162,17 @@ function createFrameDriver() {
   };
 }
 
+function trackStyleProperty(style, property, initialValue = '') {
+  let value = initialValue;
+  const write = vi.fn((nextValue) => { value = nextValue; });
+  Object.defineProperty(style, property, {
+    configurable: true,
+    get: () => value,
+    set: write,
+  });
+  return { read: () => value, write };
+}
+
 function createDiagnosticsSpy() {
   let nextRecordId = 1;
   return {
@@ -207,7 +218,7 @@ it('settles exactly one page and rolls back exactly to the origin', async () => 
   expect(secondAdapter.isStableAt(0)).toBe(true);
 });
 
-it('writes the scroller and reports progress once per animation frame', async () => {
+it('writes the scroller once per animation frame', async () => {
   const fixture = createRendition();
   const frames = createFrameDriver();
   const adapter = createEpubPageTurnAdapter(fixture.rendition, frames.environment);
@@ -221,22 +232,67 @@ it('writes the scroller and reports progress once per animation frame', async ()
     get: () => scrollLeft,
     set: writeScrollLeft,
   });
-  const onProgress = vi.fn();
-  const settling = adapter.animateTo(1, { duration: 180, onProgress });
+  const settling = adapter.animateTo(1, { duration: 180 });
 
   frames.step(0);
   expect(writeScrollLeft).toHaveBeenCalledTimes(1);
-  expect(onProgress).toHaveBeenCalledTimes(1);
 
   writeScrollLeft.mockClear();
-  onProgress.mockClear();
   frames.step(180);
   await settling;
 
   expect(writeScrollLeft).toHaveBeenCalledTimes(1);
-  expect(onProgress).toHaveBeenCalledTimes(1);
   expect(scrollLeft).toBe(200);
 });
+
+it('deduplicates identical boundary and edge transform writes', () => {
+  const fixture = createRendition();
+  fixture.scroller.scrollLeft = 0;
+  const scrollerTransform = trackStyleProperty(fixture.scroller.style, 'transform');
+  const edgeStyle = { willChange: '' };
+  const edgeTransform = trackStyleProperty(edgeStyle, 'transform');
+  const edgeElement = { style: edgeStyle };
+  const adapter = createEpubPageTurnAdapter(fixture.rendition);
+
+  adapter.begin('first-page', { edgeElement });
+  scrollerTransform.write.mockClear();
+  edgeTransform.write.mockClear();
+
+  adapter.dragBy(200);
+  adapter.dragBy(200);
+
+  expect(scrollerTransform.write).toHaveBeenCalledTimes(1);
+  expect(scrollerTransform.read()).toBe('translate3d(28px, 0, 0)');
+  expect(edgeTransform.write).toHaveBeenCalledTimes(1);
+  expect(edgeTransform.read()).toBe('translate3d(28px, 0, 0)');
+
+  adapter.cancel();
+});
+
+it.each(['end', 'cancel', 'destroy'])(
+  'positions the page seam directly and restores inline styles on %s',
+  (cleanupMethod) => {
+    const fixture = createRendition();
+    const edgeElement = document.createElement('div');
+    edgeElement.style.transform = 'scale(0.9)';
+    edgeElement.style.willChange = 'opacity';
+    const adapter = createEpubPageTurnAdapter(fixture.rendition);
+
+    adapter.begin('stable-cfi', { edgeElement });
+    expect(edgeElement.style.willChange).toBe('transform');
+
+    adapter.dragBy(-40);
+    expect(edgeElement.style.transform).toBe('translate3d(60px, 0, 0)');
+    expect(edgeElement.style.getPropertyValue('--reader-page-turn-progress')).toBe('');
+
+    adapter.dragBy(40);
+    expect(edgeElement.style.transform).toBe('translate3d(40px, 0, 0)');
+
+    adapter[cleanupMethod]();
+    expect(edgeElement.style.transform).toBe('scale(0.9)');
+    expect(edgeElement.style.willChange).toBe('opacity');
+  },
+);
 
 it('records drag and scroll-animation timing without a second animation frame', async () => {
   const fixture = createRendition();

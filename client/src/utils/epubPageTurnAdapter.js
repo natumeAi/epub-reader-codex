@@ -193,11 +193,50 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   }
 
   function setBoundaryOffset(offset) {
-    if (!session) return;
+    if (!session || session.boundaryOffset === offset) return;
     session.boundaryOffset = offset;
-    session.scroller.style.transform = offset
+    const transform = offset
       ? 'translate3d(' + offset + 'px, 0, 0)'
       : session.previousTransform;
+    if (session.scroller.style.transform !== transform) {
+      session.scroller.style.transform = transform;
+    }
+  }
+
+  function setEdgeDirection(direction) {
+    if (!session || !['next', 'prev'].includes(direction)) return;
+    if (session.edgeDirection !== direction) {
+      session.edgeDirection = direction;
+      session.edgeOffset = null;
+    }
+  }
+
+  function setEdgeOffset(visualOffset) {
+    if (!session?.edgeElement || !session.edgeDirection) return;
+    const offset = session.edgeDirection === 'next'
+      ? session.pageWidth + visualOffset
+      : visualOffset;
+    if (session.edgeOffset === offset) return;
+
+    session.edgeOffset = offset;
+    const transform = `translate3d(${offset}px, 0, 0)`;
+    if (session.edgeElement.style.transform !== transform) {
+      session.edgeElement.style.transform = transform;
+    }
+  }
+
+  function restoreSessionStyles(activeSession = session) {
+    if (!activeSession) return;
+    if (activeSession.scroller.style.transform !== activeSession.previousTransform) {
+      activeSession.scroller.style.transform = activeSession.previousTransform;
+    }
+    if (!activeSession.edgeElement) return;
+    if (activeSession.edgeElement.style.transform !== activeSession.previousEdgeTransform) {
+      activeSession.edgeElement.style.transform = activeSession.previousEdgeTransform;
+    }
+    if (activeSession.edgeElement.style.willChange !== activeSession.previousEdgeWillChange) {
+      activeSession.edgeElement.style.willChange = activeSession.previousEdgeWillChange;
+    }
   }
 
   function begin(stableCfi = null, {
@@ -217,11 +256,18 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       ...capability,
       stableCfi,
       edgeElement,
+      edgeDirection: null,
+      edgeOffset: null,
       boundaryOffset: 0,
       diagnosticAction: action,
       diagnosticRecordId,
+      previousEdgeTransform: edgeElement?.style.transform || '',
+      previousEdgeWillChange: edgeElement?.style.willChange || '',
       previousTransform: capability.scroller.style.transform || '',
     };
+    if (edgeElement && edgeElement.style.willChange !== 'transform') {
+      edgeElement.style.willChange = 'transform';
+    }
     return {
       available: true,
       pageWidth: session.pageWidth,
@@ -238,6 +284,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     const missingNeighbor =
       (effectiveDistanceX < 0 && !session.canNext) ||
       (effectiveDistanceX > 0 && !session.canPrevious);
+    setEdgeDirection(direction);
 
     if (missingNeighbor) {
       effectiveDistanceX = dampBoundaryDistance(pointerDistanceX);
@@ -247,6 +294,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       setBoundaryOffset(0);
       writeLogical(session.origin - effectiveDistanceX);
     }
+    setEdgeOffset(effectiveDistanceX);
 
     const frameTime = now();
     diagnostics.markAnimationStart(session.diagnosticRecordId, frameTime);
@@ -279,7 +327,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   function end() {
     if (session) {
       finishDiagnostic(session.diagnosticRecordId);
-      session.scroller.style.transform = session.previousTransform;
+      restoreSessionStyles();
     }
     session = null;
   }
@@ -336,6 +384,10 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     const startsAtDestination = pageDelta !== 0 &&
       Math.abs(startLogical - destination) <= ALIGNMENT_EPSILON_PX;
     const diagnosticRecordId = beginAnimationDiagnostics(pageDelta, options, startTime);
+    setEdgeDirection(pageDelta === 0
+      ? session.edgeDirection
+      : pageDelta > 0 ? 'next' : 'prev');
+    setEdgeOffset(session.origin - startLogical + startBoundaryOffset);
 
     return new Promise((resolve) => {
       const tick = (timestamp) => {
@@ -356,15 +408,9 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
 
         writeLogical(logical);
         setBoundaryOffset(boundaryOffset);
+        setEdgeOffset(session.origin - logical + boundaryOffset);
         diagnostics.markVisualUpdate(diagnosticRecordId, frameTime);
         diagnostics.frame(diagnosticRecordId, frameTime);
-        options.onProgress?.({
-          pageWidth: session.pageWidth,
-          progress: Math.min(
-            1,
-            Math.abs(logical - session.origin) / session.pageWidth,
-          ),
-        });
 
         if (linearProgress < 1) {
           animation.frameId = requestFrame(tick);
@@ -430,11 +476,10 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     stopAnimation(reason);
     if (session && options.restoreOrigin !== false) {
       writeLogical(session.origin);
-      setBoundaryOffset(0);
     }
     if (session) {
       cancelDiagnostic(session.diagnosticRecordId, reason);
-      session.scroller.style.transform = session.previousTransform;
+      restoreSessionStyles();
     }
     session = null;
   }

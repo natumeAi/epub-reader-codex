@@ -15,8 +15,6 @@
   --reader-panel-shadow: rgba(0, 0, 0, 0.14);
   --reader-page-edge-line: rgba(0, 0, 0, 0.12);
   --reader-page-edge-shadow: rgba(0, 0, 0, 0.16);
-  --reader-page-turn-progress: 0;
-  --reader-page-turn-edge-offset: 0px;
   background: var(--reader-bg);
   color: var(--reader-text);
 }
@@ -201,7 +199,7 @@
   width: 14px;
   opacity: 0;
   pointer-events: none;
-  transform: translate3d(var(--reader-page-turn-edge-offset), 0, 0);
+  transform: translate3d(0, 0, 0);
 }
 
 .reader-page-edge::before {
@@ -229,7 +227,6 @@
 .reader-page-turn-dragging .reader-page-edge,
 .reader-page-turn-settling .reader-page-edge {
   opacity: 1;
-  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {

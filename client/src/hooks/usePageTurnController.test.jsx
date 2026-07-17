@@ -444,6 +444,36 @@ it('does not recover when enhanced touch settling is cancelled', async () => {
   expect(result.current.phase).toBe('idle');
 });
 
+it('does not pass frame progress callbacks or rewrite edge opacity during animation frames', async () => {
+  const harness = createHarness();
+  const setProperty = vi.spyOn(harness.edgeRef.current.style, 'setProperty');
+  harness.adapter.isStableAt.mockReturnValue(true);
+  harness.adapter.animateTo.mockImplementation(async (_delta, options = {}) => {
+    options.onProgress?.({ pageWidth: 100, progress: 0.25 });
+    options.onProgress?.({ pageWidth: 100, progress: 0.75 });
+    queueMicrotask(() => harness.handlers.relocated?.({ start: { cfi: 'enhanced-cfi' } }));
+    return { status: 'completed' };
+  });
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  await act(async () => {
+    await result.current.turnPage('next', {
+      action: 'tap-next',
+      inputTime: 75,
+    });
+  });
+
+  const animationOptions = harness.adapter.animateTo.mock.calls[0][1];
+  const visibleOpacityWrites = setProperty.mock.calls.filter(
+    ([property, value]) => property === 'opacity' && value === '1',
+  );
+  expect(animationOptions).not.toHaveProperty('onProgress');
+  expect(visibleOpacityWrites).toHaveLength(1);
+  expect(harness.edgeRef.current.style.getPropertyValue('--reader-page-turn-progress')).toBe('');
+  expect(harness.edgeRef.current.style.getPropertyValue('--reader-page-turn-edge-offset')).toBe('');
+});
+
 it('hides the page edge as soon as touch settling reaches its visual target', async () => {
   const harness = createHarness();
   const animation = deferred();

@@ -78,28 +78,25 @@ export function usePageTurnController({
     cancellationVersionRef.current === version
   ), []);
 
-  const clearEdge = useCallback(() => {
-    edgeRef.current?.style.setProperty('--reader-page-turn-progress', '0');
-    edgeRef.current?.style.setProperty('--reader-page-turn-edge-offset', '0px');
-    edgeRef.current?.style.setProperty('opacity', '0');
-    setDirection(null);
+  const setEdgeOpacity = useCallback((opacity) => {
+    const edge = edgeRef.current;
+    if (!edge || edge.style.opacity === opacity) return;
+    edge.style.setProperty('opacity', opacity);
   }, [edgeRef]);
 
   const hideEdge = useCallback(() => {
-    edgeRef.current?.style.setProperty('opacity', '0');
-  }, [edgeRef]);
+    setEdgeOpacity('0');
+  }, [setEdgeOpacity]);
 
-  const writeEdgeProgress = useCallback((nextDirection, progress, pageWidth) => {
-    const edge = edgeRef.current;
-    if (!edge) return;
-    const clamped = Math.min(1, Math.max(0, progress));
-    const offset = nextDirection === 'next'
-      ? (1 - clamped) * pageWidth
-      : clamped * pageWidth;
-    edge.style.setProperty('--reader-page-turn-progress', String(clamped));
-    edge.style.setProperty('--reader-page-turn-edge-offset', offset + 'px');
-    edge.style.setProperty('opacity', '1');
-  }, [edgeRef]);
+  const showEdge = useCallback((nextDirection) => {
+    setDirection(nextDirection);
+    setEdgeOpacity('1');
+  }, [setEdgeOpacity]);
+
+  const clearEdge = useCallback(() => {
+    hideEdge();
+    setDirection(null);
+  }, [hideEdge]);
 
   const restoreReadyPhase = useCallback(() => {
     clearEdge();
@@ -131,16 +128,8 @@ export function usePageTurnController({
   }, []);
 
   const writeDragFrame = useCallback((distanceX) => {
-    const result = adapter?.dragBy(distanceX);
-    if (result && pointerRef.current) {
-      writeEdgeProgress(
-        result.direction,
-        result.progress,
-        pointerRef.current.session.pageWidth,
-      );
-    }
-    return result;
-  }, [adapter, writeEdgeProgress]);
+    return adapter?.dragBy(distanceX);
+  }, [adapter]);
 
   const queueDragFrame = useCallback((distanceX) => {
     pendingDragDistanceRef.current = distanceX;
@@ -244,9 +233,6 @@ export function usePageTurnController({
       action: interaction.action,
       duration: PAGE_TURN_RULES.tapDurationMs,
       inputTime: interaction.inputTime,
-      onProgress: ({ pageWidth, progress }) => {
-        writeEdgeProgress(nextDirection, progress, pageWidth);
-      },
     });
 
     if (!isCurrentOperation(operationVersion)) {
@@ -278,7 +264,6 @@ export function usePageTurnController({
     isCurrentOperation,
     recoverToBasic,
     renditionRef,
-    writeEdgeProgress,
   ]);
 
   const turnPage = useCallback(async (nextDirection, interaction = {}) => {
@@ -318,8 +303,7 @@ export function usePageTurnController({
         return await runBasicNavigation(nextDirection);
       }
 
-      setDirection(nextDirection);
-      writeEdgeProgress(nextDirection, 0, session.pageWidth);
+      showEdge(nextDirection);
       return await runEnhancedNavigation(nextDirection, session, operationVersion, {
         action,
         inputTime,
@@ -338,7 +322,7 @@ export function usePageTurnController({
     runBasicNavigation,
     runEnhancedNavigation,
     setPhase,
-    writeEdgeProgress,
+    showEdge,
   ]);
 
   const handlePointerDown = useCallback((event) => {
@@ -402,7 +386,7 @@ export function usePageTurnController({
       pointer.locked = 'horizontal';
       if (pointer.mode === 'enhanced') {
         const nextDirection = dx < 0 ? 'next' : 'prev';
-        setDirection(nextDirection);
+        showEdge(nextDirection);
         setPhase('dragging');
         try {
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -417,7 +401,7 @@ export function usePageTurnController({
       if (event.cancelable) event.preventDefault();
       if (pointer.mode === 'enhanced') queueDragFrame(dx);
     }
-  }, [adapter, finishPointer, queueDragFrame, restoreReadyPhase, setPhase]);
+  }, [adapter, finishPointer, queueDragFrame, restoreReadyPhase, setPhase, showEdge]);
 
   const handlePointerUp = useCallback((event) => {
     const pointer = pointerRef.current;
@@ -490,9 +474,6 @@ export function usePageTurnController({
             action: 'rollback',
             duration,
             inputTime: event.timeStamp,
-            onProgress: ({ pageWidth, progress }) => {
-              writeEdgeProgress(nextDirection, progress, pageWidth);
-            },
           });
           if (!isCurrentOperation(operationVersion)) return;
           hideEdge();
@@ -507,9 +488,6 @@ export function usePageTurnController({
             action: 'rollback',
             duration: PAGE_TURN_RULES.settleDurationMinMs,
             inputTime: event.timeStamp,
-            onProgress: ({ pageWidth, progress }) => {
-              writeEdgeProgress(nextDirection, progress, pageWidth);
-            },
           });
           if (!isCurrentOperation(operationVersion)) return;
           hideEdge();
@@ -537,9 +515,6 @@ export function usePageTurnController({
           action: 'commit',
           duration: getSettleDuration(remaining, pointer.session.pageWidth),
           inputTime: event.timeStamp,
-          onProgress: ({ pageWidth, progress }) => {
-            writeEdgeProgress(nextDirection, progress, pageWidth);
-          },
         });
         if (!isCurrentOperation(operationVersion)) {
           waiter.cancel();
@@ -583,7 +558,6 @@ export function usePageTurnController({
     setPhase,
     turnPage,
     writeDragFrame,
-    writeEdgeProgress,
   ]);
 
   const handlePointerCancel = useCallback((event) => {

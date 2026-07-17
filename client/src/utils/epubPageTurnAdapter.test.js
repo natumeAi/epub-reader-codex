@@ -25,6 +25,7 @@ function createRendition(overrides = {}) {
       snap: true,
     },
     snapper: {},
+    updateLayout: vi.fn(),
   };
   return {
     rendition: {
@@ -92,6 +93,18 @@ describe('epub page-turn adapter core', () => {
     expect(scroller.scrollLeft).toBe(180);
     expect(adapter.isStableAt(1)).toBe(false);
     expect(scroller.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it('updates the rendition page gap through the private adapter boundary', () => {
+    const { rendition, manager } = createRendition();
+    const adapter = createEpubPageTurnAdapter(rendition);
+
+    expect(adapter.setPageGap).toEqual(expect.any(Function));
+    if (typeof adapter.setPageGap !== 'function') return;
+
+    expect(adapter.setPageGap(144)).toBe(true);
+    expect(manager.settings.gap).toBe(144);
+    expect(manager.updateLayout).toHaveBeenCalledTimes(1);
   });
 
   it('allows basic relocated events when enhanced capability is unavailable', () => {

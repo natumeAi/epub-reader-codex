@@ -81,7 +81,12 @@ export function usePageTurnController({
   const clearEdge = useCallback(() => {
     edgeRef.current?.style.setProperty('--reader-page-turn-progress', '0');
     edgeRef.current?.style.setProperty('--reader-page-turn-edge-offset', '0px');
+    edgeRef.current?.style.setProperty('opacity', '0');
     setDirection(null);
+  }, [edgeRef]);
+
+  const hideEdge = useCallback(() => {
+    edgeRef.current?.style.setProperty('opacity', '0');
   }, [edgeRef]);
 
   const writeEdgeProgress = useCallback((nextDirection, progress, pageWidth) => {
@@ -93,6 +98,7 @@ export function usePageTurnController({
       : clamped * pageWidth;
     edge.style.setProperty('--reader-page-turn-progress', String(clamped));
     edge.style.setProperty('--reader-page-turn-edge-offset', offset + 'px');
+    edge.style.setProperty('opacity', '1');
   }, [edgeRef]);
 
   const restoreReadyPhase = useCallback(() => {
@@ -244,6 +250,7 @@ export function usePageTurnController({
       waiter.cancel();
       return 'ignored';
     }
+    hideEdge();
     if (animation.status !== 'completed') {
       waiter.cancel();
       if (animation.status === 'unavailable') {
@@ -264,6 +271,7 @@ export function usePageTurnController({
     return 'completed';
   }, [
     adapter,
+    hideEdge,
     isCurrentOperation,
     recoverToBasic,
     renditionRef,
@@ -463,6 +471,7 @@ export function usePageTurnController({
             },
           });
           if (!isCurrentOperation(operationVersion)) return;
+          hideEdge();
           adapter.end();
           return;
         }
@@ -477,6 +486,7 @@ export function usePageTurnController({
             },
           });
           if (!isCurrentOperation(operationVersion)) return;
+          hideEdge();
           adapter.end();
           const location = await readCurrentLocation(renditionRef.current).catch(() => null);
           if (!isCurrentOperation(operationVersion)) return;
@@ -507,6 +517,7 @@ export function usePageTurnController({
           waiter.cancel();
           return;
         }
+        hideEdge();
         if (animation.status !== 'completed') {
           waiter.cancel();
           if (animation.status === 'unavailable') {
@@ -534,6 +545,7 @@ export function usePageTurnController({
     cancelPageTurn,
     clearDragFrame,
     finishPointer,
+    hideEdge,
     isCurrentOperation,
     onCenterTap,
     renditionRef,

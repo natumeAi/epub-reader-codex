@@ -63,7 +63,6 @@ vi.mock('../../hooks/useReaderSettings.js', () => ({
     readerSettingsRef: { current: {} },
     readerTheme: { background: '#fff', text: '#000', muted: '#666' },
     readerThemeId: 'light',
-    readerViewportStyle: {},
     resetReaderSettingsLoad: vi.fn(),
     themeOptions: [],
   }),

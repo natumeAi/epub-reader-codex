@@ -148,6 +148,7 @@ describe('useEpubRendition progress', () => {
       fixture.args.containerRef.current,
       expect.objectContaining({
         flow: 'paginated',
+        gap: 144,
         manager: 'continuous',
         snap: true,
         spread: 'none',

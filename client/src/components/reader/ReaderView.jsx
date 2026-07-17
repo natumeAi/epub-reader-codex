@@ -97,7 +97,6 @@ export function ReaderView({ book, originRect, onClose }) {
     readerSettingsRef,
     readerTheme,
     readerThemeId,
-    readerViewportStyle,
     resetReaderSettingsLoad,
     themeOptions,
   } = useReaderSettings({
@@ -355,7 +354,6 @@ export function ReaderView({ book, originRect, onClose }) {
         <div
           ref={containerRef}
           className="reader-epub-container"
-          style={readerViewportStyle}
         />
         <div
           ref={pageEdgeRef}

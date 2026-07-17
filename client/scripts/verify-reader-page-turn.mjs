@@ -41,13 +41,26 @@ async function readScroll(page) {
         (overflowX === 'auto' || overflowX === 'scroll' || overflowX === 'hidden');
     });
     if (!scroller) throw new Error('epub.js horizontal scroller not found');
+    const edge = document.querySelector('.reader-page-edge');
+    const edgeStyle = getComputedStyle(edge);
+    const edgeBeforeStyle = getComputedStyle(edge, '::before');
+    const edgeTransform = new DOMMatrixReadOnly(edgeStyle.transform);
+    const iframeBody = container.querySelector('iframe')?.contentDocument?.body;
+    const iframeBodyStyle = iframeBody ? getComputedStyle(iframeBody) : null;
     return {
       left: scroller.scrollLeft,
       width: scroller.clientWidth,
       sheetRemoved: !document.querySelector('.reader-page-turn-sheet'),
-      edgeOpacity: Number(getComputedStyle(
-        document.querySelector('.reader-page-edge'),
-      ).opacity),
+      containerLeft: container.offsetLeft,
+      containerRight: container.offsetLeft + container.clientWidth,
+      edgeBackgroundColor: edgeStyle.backgroundColor,
+      edgeLeft: edge.offsetLeft + edgeTransform.m41,
+      edgeOpacity: Number(edgeStyle.opacity),
+      edgeSeamOffset: Number.parseFloat(edgeBeforeStyle.left),
+      edgeWidth: edge.offsetWidth,
+      pageColumnGap: Number.parseFloat(iframeBodyStyle?.columnGap),
+      pagePaddingLeft: Number.parseFloat(iframeBodyStyle?.paddingLeft),
+      pagePaddingRight: Number.parseFloat(iframeBodyStyle?.paddingRight),
     };
   });
 }
@@ -105,9 +118,20 @@ try {
     inspectMid: true,
   });
   const normalPage = await label(page);
+  const normalDragDistance = normalMid.left - normalStart.left;
+  const expectedMargin = normalMid.pagePaddingLeft;
+  const expectedSeam = normalMid.containerRight - normalDragDistance;
+  const actualSeam = normalMid.edgeLeft + normalMid.edgeSeamOffset;
   if (
     normalMid.left === normalStart.left ||
     normalMid.edgeOpacity === 0 ||
+    normalMid.containerLeft !== 0 ||
+    expectedMargin <= 0 ||
+    Math.abs(normalMid.pagePaddingRight - expectedMargin) > 1 ||
+    Math.abs(normalMid.pageColumnGap - expectedMargin * 2) > 1 ||
+    Math.abs(normalMid.edgeWidth - 14) > 1 ||
+    Math.abs(actualSeam - expectedSeam) > 1 ||
+    normalMid.edgeBackgroundColor !== 'rgba(0, 0, 0, 0)' ||
     normalPage.current !== initialPage.current + 1 ||
     !normalMid.sheetRemoved
   ) {

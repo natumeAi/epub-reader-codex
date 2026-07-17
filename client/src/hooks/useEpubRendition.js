@@ -3,8 +3,7 @@ import Epub from 'epubjs';
 import { getReadingProgress } from '../api/readingApi.js';
 import { createEpubPageTurnAdapter } from '../utils/epubPageTurnAdapter.js';
 import { selectProgressForRelocation } from '../utils/readingProgress.js';
-
-const RENDITION_COLUMN_GAP = 0;
+import { getReaderPageGap } from './useReaderSettings.js';
 
 export function useEpubRendition({
   applyReaderHorizontalMargin,
@@ -73,7 +72,7 @@ export function useEpubRendition({
           height: '100%',
           manager: 'continuous',
           flow: 'paginated',
-          gap: RENDITION_COLUMN_GAP,
+          gap: getReaderPageGap(readerSettingsRef.current.horizontalMargin),
           spread: 'none',
           snap: true,
         });

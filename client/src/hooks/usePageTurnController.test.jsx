@@ -54,6 +54,7 @@ function createHarness(options = {}) {
     adapter,
     currentCfiRef: { current: 'stable-cfi' },
     edgeRef: { current: document.createElement('div') },
+    handlers,
     rendition,
     renditionRef: { current: rendition },
     ...options,
@@ -382,4 +383,29 @@ it('does not recover when enhanced touch settling is cancelled', async () => {
 
   expect(harness.adapter.recover).not.toHaveBeenCalled();
   expect(result.current.phase).toBe('idle');
+});
+
+it('hides the page edge as soon as touch settling reaches its visual target', async () => {
+  const harness = createHarness();
+  const animation = deferred();
+  harness.adapter.animateTo.mockReturnValue(animation.promise);
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  await startEnhancedTouch(result);
+  await waitFor(() => expect(result.current.phase).toBe('settling'));
+  expect(harness.edgeRef.current.style.opacity).toBe('1');
+
+  await act(async () => {
+    animation.resolve({ status: 'completed' });
+    await animation.promise;
+    await Promise.resolve();
+  });
+
+  expect(result.current.phase).toBe('settling');
+  expect(harness.edgeRef.current.style.opacity).toBe('0');
+
+  harness.adapter.isStableAt.mockReturnValue(true);
+  act(() => harness.handlers.relocated?.({ start: { cfi: 'next-cfi' } }));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
 });

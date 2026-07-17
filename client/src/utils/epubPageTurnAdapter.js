@@ -11,6 +11,23 @@ function unavailable(reason) {
   return { available: false, reason };
 }
 
+export function configureEpubPageGap(rendition, pageGap) {
+  const manager = rendition?.manager;
+  const gap = Number(pageGap);
+  if (
+    !manager?.settings ||
+    typeof manager.updateLayout !== 'function' ||
+    !Number.isFinite(gap) ||
+    gap < 0
+  ) {
+    return false;
+  }
+
+  manager.settings.gap = gap;
+  manager.updateLayout();
+  return true;
+}
+
 export function toLogicalScroll({
   scrollLeft,
   maxScroll,
@@ -326,6 +343,12 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     destroyed = true;
   }
 
+  function setPageGap(pageGap) {
+    if (destroyed) return false;
+    cancel({ restoreOrigin: true });
+    return configureEpubPageGap(rendition, pageGap);
+  }
+
   return {
     animateTo,
     begin,
@@ -337,5 +360,6 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     isStableAligned,
     isStableAt,
     recover,
+    setPageGap,
   };
 }

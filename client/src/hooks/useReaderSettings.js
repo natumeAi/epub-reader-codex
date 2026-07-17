@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { configureEpubPageGap } from '../utils/epubPageTurnAdapter.js';
 
 const SETTINGS_SAVE_DEBOUNCE_MS = 500;
 const SETTINGS_STORAGE_KEY = 'epub-reader:reader-settings';
@@ -7,7 +8,6 @@ const FONT_SIZE_MIN = 14;
 const FONT_SIZE_MAX = 40;
 const FONT_SIZE_STEP = 2;
 const BASE_HORIZONTAL_MARGIN = 48;
-const READER_COLUMN_GAP = 0;
 const DEFAULT_HORIZONTAL_MARGIN = 0;
 const HORIZONTAL_MARGIN_MIN = 0;
 const HORIZONTAL_MARGIN_MAX = 48;
@@ -168,8 +168,12 @@ function sanitizeThemeId(themeId) {
     : DEFAULT_THEME_ID;
 }
 
-function getEffectiveHorizontalMargin(horizontalMargin) {
+export function getEffectiveHorizontalMargin(horizontalMargin) {
   return BASE_HORIZONTAL_MARGIN + clampHorizontalMargin(horizontalMargin);
+}
+
+export function getReaderPageGap(horizontalMargin) {
+  return getEffectiveHorizontalMargin(horizontalMargin) * 2;
 }
 
 function getEffectiveVerticalMargin(verticalMargin) {
@@ -230,11 +234,13 @@ function saveReaderSettingsToStorage(settings) {
 function getReaderLayoutCss({
   fontFamilyId,
   fontSize,
+  horizontalMargin,
   verticalMargin,
   lineHeight,
   letterSpacing,
 }) {
   const effectiveVerticalMargin = getEffectiveVerticalMargin(verticalMargin);
+  const effectiveHorizontalMargin = getEffectiveHorizontalMargin(horizontalMargin);
   const fontFamily = getReaderFontFamily(fontFamilyId);
 
   return `
@@ -248,8 +254,8 @@ function getReaderLayoutCss({
       box-sizing: border-box !important;
       font-family: ${fontFamily} !important;
       font-size: ${fontSize}px !important;
-      padding-left: 0 !important;
-      padding-right: 0 !important;
+      padding-left: ${effectiveHorizontalMargin}px !important;
+      padding-right: ${effectiveHorizontalMargin}px !important;
       padding-top: ${effectiveVerticalMargin}px !important;
       padding-bottom: ${effectiveVerticalMargin}px !important;
       line-height: ${lineHeight} !important;
@@ -292,6 +298,7 @@ function applyReaderLayoutStylesToContents(contents, settings) {
 
   const fontSize = `${settings.fontSize}px`;
   const fontFamily = getReaderFontFamily(settings.fontFamilyId);
+  const horizontalMargin = `${getEffectiveHorizontalMargin(settings.horizontalMargin)}px`;
   const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
   const lineHeight = String(settings.lineHeight);
   const letterSpacing = `${settings.letterSpacing}em`;
@@ -299,8 +306,8 @@ function applyReaderLayoutStylesToContents(contents, settings) {
   contents.css?.('box-sizing', 'border-box', true);
   contents.css?.('font-size', fontSize, true);
   contents.css?.('font-family', fontFamily, true);
-  contents.css?.('padding-left', '0px', true);
-  contents.css?.('padding-right', '0px', true);
+  contents.css?.('padding-left', horizontalMargin, true);
+  contents.css?.('padding-right', horizontalMargin, true);
   contents.css?.('padding-top', verticalMargin, true);
   contents.css?.('padding-bottom', verticalMargin, true);
   contents.css?.('line-height', lineHeight, true);
@@ -320,6 +327,7 @@ function applyReaderLayoutStylesToFrames(container, settings) {
 
   const fontSize = `${settings.fontSize}px`;
   const fontFamily = getReaderFontFamily(settings.fontFamilyId);
+  const horizontalMargin = `${getEffectiveHorizontalMargin(settings.horizontalMargin)}px`;
   const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
 
   container.querySelectorAll('iframe').forEach((iframe) => {
@@ -329,8 +337,8 @@ function applyReaderLayoutStylesToFrames(container, settings) {
     body.style.setProperty('box-sizing', 'border-box', 'important');
     body.style.setProperty('font-size', fontSize, 'important');
     body.style.setProperty('font-family', fontFamily, 'important');
-    body.style.setProperty('padding-left', '0px', 'important');
-    body.style.setProperty('padding-right', '0px', 'important');
+    body.style.setProperty('padding-left', horizontalMargin, 'important');
+    body.style.setProperty('padding-right', horizontalMargin, 'important');
     body.style.setProperty('padding-top', verticalMargin, 'important');
     body.style.setProperty('padding-bottom', verticalMargin, 'important');
   });
@@ -339,6 +347,7 @@ function applyReaderLayoutStylesToFrames(container, settings) {
 function applyReaderSettingsToRendition(rendition, settings) {
   if (!rendition?.themes) return;
   const theme = getReaderTheme(settings.themeId);
+  const horizontalMargin = `${getEffectiveHorizontalMargin(settings.horizontalMargin)}px`;
   const verticalMargin = `${getEffectiveVerticalMargin(settings.verticalMargin)}px`;
   const lineHeight = String(settings.lineHeight);
   const letterSpacing = `${settings.letterSpacing}em`;
@@ -366,8 +375,8 @@ function applyReaderSettingsToRendition(rendition, settings) {
     applyReaderThemeStylesToContents(contents, theme);
   });
   rendition.themes.override('box-sizing', 'border-box', true);
-  rendition.themes.override('padding-left', '0px', true);
-  rendition.themes.override('padding-right', '0px', true);
+  rendition.themes.override('padding-left', horizontalMargin, true);
+  rendition.themes.override('padding-right', horizontalMargin, true);
   rendition.themes.override('padding-top', verticalMargin, true);
   rendition.themes.override('padding-bottom', verticalMargin, true);
   rendition.themes.override('line-height', lineHeight, true);
@@ -381,19 +390,22 @@ function applyReaderSettingsToRendition(rendition, settings) {
 function applyReaderHorizontalMarginStylesToRendition(rendition, horizontalMargin) {
   if (!rendition?.themes) return;
 
+  const effectiveHorizontalMargin = `${getEffectiveHorizontalMargin(horizontalMargin)}px`;
+
   rendition.getContents?.().forEach((contents) => {
     contents.css?.('box-sizing', 'border-box', true);
-    contents.css?.('padding-left', '0px', true);
-    contents.css?.('padding-right', '0px', true);
+    contents.css?.('padding-left', effectiveHorizontalMargin, true);
+    contents.css?.('padding-right', effectiveHorizontalMargin, true);
   });
   rendition.themes.override('box-sizing', 'border-box', true);
-  rendition.themes.override('padding-left', '0px', true);
-  rendition.themes.override('padding-right', '0px', true);
+  rendition.themes.override('padding-left', effectiveHorizontalMargin, true);
+  rendition.themes.override('padding-right', effectiveHorizontalMargin, true);
 }
 
 async function applyReaderHorizontalMarginToRendition(rendition, horizontalMargin, cfi) {
   if (!rendition) return;
 
+  configureEpubPageGap(rendition, getReaderPageGap(horizontalMargin));
   rendition.resize?.();
   applyReaderHorizontalMarginStylesToRendition(rendition, horizontalMargin);
 
@@ -618,13 +630,6 @@ export function useReaderSettings({
 
   const readerTheme = useMemo(() => getReaderTheme(readerThemeId), [readerThemeId]);
   const readerFont = useMemo(() => getReaderFontOption(fontFamilyId), [fontFamilyId]);
-  const readerViewportStyle = useMemo(() => {
-    const horizontalInset = `${getEffectiveHorizontalMargin(horizontalMargin)}px`;
-    return {
-      left: horizontalInset,
-      right: horizontalInset,
-    };
-  }, [horizontalMargin]);
   const layoutSettings = useMemo(() => [
     {
       id: 'reader-horizontal-margin-title',
@@ -700,7 +705,6 @@ export function useReaderSettings({
     readerSettingsRef,
     readerTheme,
     readerThemeId,
-    readerViewportStyle,
     resetReaderSettingsLoad,
     themeOptions: READER_THEME_OPTIONS,
   };

@@ -103,18 +103,29 @@ export async function prepareReaderVerification(options = {}) {
   const appUrl = `http://127.0.0.1:${clientPort}/`;
   const screenshotPath = process.env.SCREENSHOT_PATH || path.join(rootDir, 'reader-settings-narrow.png');
   const children = [];
-  const fixtureCount = Number.isInteger(options.fixtureCount)
+  const defaultFixtureCount = Number.isInteger(options.fixtureCount)
     ? Math.max(1, options.fixtureCount)
     : 1;
+  const fixtures = Array.isArray(options.fixtures)
+    ? options.fixtures
+    : Array.from({ length: defaultFixtureCount }, (_, index) => {
+        const number = index + 1;
+        const suffix = number === 1 ? '' : ` ${number}`;
+        return {
+          filename: `Mobile Fixture${suffix}.epub`,
+          title: `Mobile Fixture${suffix}`,
+          options: { paragraphCount: 80 },
+        };
+      });
+  const fixtureCount = fixtures.length;
 
   mkdirSync(booksDir, { recursive: true });
-  for (let index = 1; index <= fixtureCount; index += 1) {
-    const suffix = index === 1 ? '' : ` ${index}`;
-    createEpubFixture(path.join(booksDir, `Mobile Fixture${suffix}.epub`), {
-      title: `Mobile Fixture${suffix}`,
-      paragraphCount: 80,
+  fixtures.forEach((fixture) => {
+    createEpubFixture(path.join(booksDir, fixture.filename), {
+      ...fixture.options,
+      title: fixture.title,
     });
-  }
+  });
 
   const serverChild = startNode(path.join(serverRoot, 'src', 'index.js'), [], {
     cwd: serverRoot,

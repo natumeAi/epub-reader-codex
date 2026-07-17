@@ -93,3 +93,31 @@ export function easeOutCubic(progress) {
   const value = clamp(progress, 0, 1);
   return 1 - ((1 - value) ** 3);
 }
+
+export function sampleEaseOutCubicKeyframes(maxErrorRatio = 0.0025) {
+  const tolerance = Number.isFinite(maxErrorRatio) && maxErrorRatio > 0
+    ? maxErrorRatio
+    : 0.0025;
+  const points = [{ offset: 0, value: easeOutCubic(0) }];
+  const appendSegment = (left, right, depth) => {
+    const leftValue = easeOutCubic(left);
+    const rightValue = easeOutCubic(right);
+    const exceedsTolerance = [0.25, 0.5, 0.75].some((ratio) => {
+      const offset = left + (right - left) * ratio;
+      const linearValue = leftValue + (rightValue - leftValue) * ratio;
+      return Math.abs(easeOutCubic(offset) - linearValue) > tolerance;
+    });
+
+    if (exceedsTolerance && depth < 12) {
+      const midpoint = (left + right) / 2;
+      appendSegment(left, midpoint, depth + 1);
+      appendSegment(midpoint, right, depth + 1);
+      return;
+    }
+
+    points.push({ offset: right, value: rightValue });
+  };
+
+  appendSegment(0, 1, 0);
+  return points;
+}

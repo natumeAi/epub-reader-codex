@@ -5,11 +5,33 @@ import {
   classifyDirection,
   dampBoundaryDistance,
   decidePageDelta,
+  easeOutCubic,
   getDistanceThreshold,
   getRecentVelocity,
   getSettleDuration,
   getTapZone,
+  sampleEaseOutCubicKeyframes,
 } from './pageTurnGesture.js';
+
+function maxInterpolationError(samples, easing) {
+  let sampleIndex = 1;
+  let maximumError = 0;
+
+  for (let step = 0; step <= 1000; step += 1) {
+    const offset = step / 1000;
+    while (samples[sampleIndex].offset < offset) {
+      sampleIndex += 1;
+    }
+
+    const left = samples[sampleIndex - 1];
+    const right = samples[sampleIndex];
+    const ratio = (offset - left.offset) / (right.offset - left.offset);
+    const interpolated = left.value + (right.value - left.value) * ratio;
+    maximumError = Math.max(maximumError, Math.abs(easing(offset) - interpolated));
+  }
+
+  return maximumError;
+}
 
 describe('page-turn gesture rules', () => {
   it('locks only after 10px and requires a 1.2 horizontal advantage', () => {
@@ -58,5 +80,19 @@ describe('page-turn gesture rules', () => {
     expect(getTapZone(20, 0, 300)).toBe('prev');
     expect(getTapZone(150, 0, 300)).toBe('center');
     expect(getTapZone(280, 0, 300)).toBe('next');
+  });
+
+  it('samples ease-out cubic into monotonic keyframes with bounded error', () => {
+    const samples = sampleEaseOutCubicKeyframes();
+
+    expect(samples[0]).toEqual({ offset: 0, value: 0 });
+    expect(samples.at(-1)).toEqual({ offset: 1, value: 1 });
+    expect(samples.every((point, index) => (
+      index === 0 || (
+        point.offset > samples[index - 1].offset
+        && point.value >= samples[index - 1].value
+      )
+    ))).toBe(true);
+    expect(maxInterpolationError(samples, easeOutCubic)).toBeLessThanOrEqual(0.0025);
   });
 });

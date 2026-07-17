@@ -1,5 +1,15 @@
 # Reader Page Turn 60 FPS Phase C Device Rollout Implementation Plan
 
+## Status
+
+**Closed as not required by user decision on 2026-07-18.**
+
+- The user manually evaluated the current mobile page-turn experience from the immutable `ac26ae6` build over the LAN HTTP service and confirmed that it meets the requested result.
+- Phase C Manual Checkpoints A–D and Tasks 5–6 will not be executed. Their unchecked implementation steps below are retained only as historical plan detail and are not outstanding work.
+- No real-device diagnostic JSON or numeric PWA gate evidence was collected, so this closure does not claim that the planned FPS, p95, stall or input-latency gates passed.
+- `DEFAULT_PAGE_TURN_BACKEND` remains `scroll`; the completed Phase B compositor implementation and permanent scroll/basic fallbacks remain unchanged.
+- The 60 FPS page-turn implementation effort is accepted as complete for the user's current product requirements, and no Phase C evidence document is required.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 iPhone 14 Pro Max 和 Lenovo Xiaoxin Pro GT 的移动 Chrome 与安装 PWA 中完成 compositor/scroll A/B 功能和性能矩阵，并且只有两台设备的 PWA compositor 均通过门槛后才将 compositor 设为正常默认后端。
@@ -146,7 +156,7 @@ The user uses the same immutable build for all four manual checkpoints. For each
 
 **Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
 
-**Status:** Pending user evidence.
+**Status:** Not required — closed by user acceptance on 2026-07-18.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -242,7 +252,7 @@ Expected: the current group has 20 completed records for the forced backend and 
 
 **Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
 
-**Status:** Pending user evidence.
+**Status:** Not required — closed by user acceptance on 2026-07-18.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -327,7 +337,7 @@ Expected: 20 completed records for the current forced backend/action group and n
 
 **Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
 
-**Status:** Pending user evidence.
+**Status:** Not required — closed by user acceptance on 2026-07-18.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -413,7 +423,7 @@ Expected: 20 records for the selected group/backend, all terminal, with no persi
 
 **Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
 
-**Status:** Pending user evidence.
+**Status:** Not required — closed by user acceptance on 2026-07-18.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -495,6 +505,8 @@ Expected: 20 terminal records for the current action/backend and no persistent a
 - Other tablets, device-specific branches, threshold changes, redesign and unrelated PWA issues.
 
 ### Task 5: Promote compositor to default only after both PWA gates pass
+
+**Status:** Not applicable — the user closed Phase C without changing the default backend.
 
 **Estimated effort:** 45–60 minutes.
 
@@ -592,6 +604,8 @@ Expected: both selected files pass; default/fallback tests report compositor/scr
 
 ### Task 6: Run the single final release verification and close the plan
 
+**Status:** Not applicable — the user accepted the existing verified Phase B build and closed Phase C.
+
 **Estimated effort:** 30–45 minutes.
 
 #### Goal
@@ -667,9 +681,10 @@ Expected: both commands exit 0; browser JSON identifies default compositor plus 
 
 - Full repository review, all device models, comprehensive security/performance audit, warning cleanup, production perfection, second review rounds and future renderer work.
 
-## Phase C Completion State
+## Phase C Closure State
 
-- User-supplied evidence shows both target devices pass Chrome preflight and installed-PWA final matrices.
-- Compositor is default only when both user-run PWA gates pass.
-- Scroll and basic remain permanent safe fallbacks.
-- Build/browser/design checks pass once and the plan stops.
+- [x] The user completed a manual mobile experience check against build `ac26ae6` and accepted the current page-turn result on 2026-07-18.
+- [x] The user explicitly decided that the Phase C device rollout and numeric evidence matrix are no longer required.
+- [x] Manual Checkpoints A–D and Tasks 5–6 are closed as not applicable rather than represented as tests that were run.
+- [x] The default backend remains scroll; compositor forcing, runtime capability checks and scroll/basic fallbacks remain available.
+- [x] No fabricated real-device metrics or PASS verdicts were added, and the plan is closed with no remaining required work.

@@ -308,11 +308,17 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       activeSession.scroller.clientWidth || activeSession.scroller.offsetWidth,
     );
     const contentWidth = Number(activeSession.scroller.scrollWidth);
+    const maximumTransformOverflow = Math.max(
+      Math.abs(activeSession.visualOffset || 0),
+      Math.abs(activeSession.animationTargetOffset || 0),
+    );
+    const contentWidthDelta = contentWidth - activeSession.contentWidth;
     if (
       !Number.isFinite(viewportWidth) ||
       !Number.isFinite(contentWidth) ||
       Math.abs(viewportWidth - activeSession.viewportWidth) > ALIGNMENT_EPSILON_PX ||
-      Math.abs(contentWidth - activeSession.contentWidth) > ALIGNMENT_EPSILON_PX
+      contentWidthDelta < -ALIGNMENT_EPSILON_PX ||
+      contentWidthDelta > maximumTransformOverflow + ALIGNMENT_EPSILON_PX
     ) {
       return 'geometry';
     }
@@ -682,6 +688,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
 
     session = {
       ...capability,
+      animationTargetOffset: null,
       animations: [],
       backend,
       cancellationOutcome: null,
@@ -846,6 +853,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   function restoreCompositorVisual(activeSession) {
     cancelAnimationGroup(activeSession.animations);
     restoreSessionStyles(activeSession);
+    activeSession.animationTargetOffset = null;
     activeSession.visualOffset = 0;
     activeSession.boundaryOffset = 0;
     activeSession.edgeOffset = null;
@@ -872,6 +880,9 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
 
         const frameTime = Number.isFinite(timestamp) ? timestamp : now();
         disconnectSessionWatchers(activeSession);
+        if (activeSession.manager?.ignore === true) {
+          activeSession.manager.ignore = false;
+        }
         writeLogical(
           activeSession.origin + pageDelta * activeSession.pageWidth,
           activeSession,
@@ -907,6 +918,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       ? activeSession.edgeDirection || (from < 0 ? 'next' : 'prev')
       : pageDelta > 0 ? 'next' : 'prev';
     setEdgeDirection(direction);
+    activeSession.animationTargetOffset = targetOffset;
     const diagnosticRecordId = beginAnimationDiagnostics(pageDelta, options, startTime);
     const group = runAnimationGroup({
       direction,

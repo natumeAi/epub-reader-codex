@@ -773,6 +773,43 @@ describe('forced compositor session preparation', () => {
     adapter.end();
   });
 
+  it('accepts transform-only scroll width growth through an RTL commit', async () => {
+    const fixture = createRendition();
+    fixture.manager.settings.direction = 'rtl';
+    fixture.manager.settings.rtlScrollType = 'negative';
+    fixture.scroller.scrollLeft = -100;
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const frames = createFrameDriver();
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      ...frames.environment,
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    expect(adapter.begin('stable-cfi', { edgeElement })).toMatchObject({
+      backend: 'compositor',
+      origin: 100,
+    });
+    adapter.dragBy(-40);
+    fixture.scroller.scrollWidth = 1415;
+    const commit = adapter.animateTo(1, { duration: 180 });
+
+    expect(fixture.animations).toHaveLength(3);
+    fixture.scroller.scrollWidth = 1475;
+    fixture.animations.forEach((animation) => animation.finish());
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+    frames.step(16);
+    await expect(commit).resolves.toEqual({
+      status: 'completed',
+      backend: 'compositor',
+    });
+    expect(fixture.scroller.scrollLeft).toBe(-200);
+    adapter.end();
+  });
+
   it.each([
     ['LTR', 'ltr', 'negative', 100, 200],
     ['RTL default', 'rtl', 'default', 900, 800],
@@ -790,6 +827,7 @@ describe('forced compositor session preparation', () => {
       edgeElement.style.willChange = 'opacity';
       fixture.rendition.next = vi.fn();
       fixture.rendition.prev = vi.fn();
+      fixture.manager.ignore = true;
       let scrollLeft = initialPhysical;
       const writes = [];
       const writeScrollLeft = vi.fn((value) => {
@@ -797,6 +835,7 @@ describe('forced compositor session preparation', () => {
           animationCancelCounts: fixture.animations.map((animation) => (
             animation.cancel.mock.calls.length
           )),
+          managerIgnore: fixture.manager.ignore,
           value,
           viewWillChange: fixture.viewElements.map((element) => (
             element.style.willChange
@@ -869,6 +908,7 @@ describe('forced compositor session preparation', () => {
       expect(writeScrollLeft).toHaveBeenCalledTimes(1);
       expect(writes).toEqual([{
         animationCancelCounts: [0, 0, 0],
+        managerIgnore: false,
         value: expectedPhysical,
         viewWillChange: ['transform', 'transform'],
       }]);

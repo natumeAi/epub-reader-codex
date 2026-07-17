@@ -20,9 +20,13 @@ function createRect({ left = 0, top = 0, width = 100, height = 375 } = {}) {
 }
 
 function createFakeAnimation() {
+  let resolveFinished;
   return {
     cancel: vi.fn(),
-    finished: Promise.resolve(),
+    finish: vi.fn(() => resolveFinished()),
+    finished: new Promise((resolve) => {
+      resolveFinished = resolve;
+    }),
     startTime: null,
   };
 }
@@ -569,6 +573,168 @@ describe('forced compositor session preparation', () => {
     expect(fixture.viewElements[1].style.willChange).toBe('');
     expect(edgeElement.style.transform).toBe('scale(0.8)');
     expect(edgeElement.style.willChange).toBe('opacity');
+  });
+
+  it('moves every displayed view and the seam without scrolling', () => {
+    const fixture = createRendition();
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    adapter.begin('stable-cfi', { edgeElement });
+    expect(adapter.dragBy(-40)).toMatchObject({
+      boundary: false,
+      direction: 'next',
+      effectiveDistanceX: -40,
+      progress: 0.4,
+    });
+
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual([
+      'translate3d(-40px, 0, 0)',
+      'translate3d(-40px, 0, 0)',
+    ]);
+    expect(edgeElement.style.transform).toBe('translate3d(60px, 0, 0)');
+    expect(fixture.scroller.scrollLeft).toBe(100);
+    expect(fixture.scroller.style.transform || '').toBe('');
+    expect(fixture.rendition.reportLocation).not.toHaveBeenCalled();
+
+    adapter.cancel();
+  });
+
+  it('damps a missing-neighbor compositor drag to 28px without scrolling', () => {
+    const fixture = createRendition();
+    fixture.scroller.scrollLeft = 0;
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    expect(adapter.begin('first-page', { edgeElement })).toMatchObject({
+      backend: 'compositor',
+      canPrevious: false,
+    });
+    expect(adapter.dragBy(200)).toMatchObject({
+      boundary: true,
+      direction: 'prev',
+      effectiveDistanceX: 28,
+    });
+
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual([
+      'translate3d(28px, 0, 0)',
+      'translate3d(28px, 0, 0)',
+    ]);
+    expect(edgeElement.style.transform).toBe('translate3d(28px, 0, 0)');
+    expect(fixture.scroller.scrollLeft).toBe(0);
+    expect(fixture.scroller.style.transform || '').toBe('');
+
+    adapter.cancel();
+  });
+
+  it('rolls compositor views back as one WAAPI group without relocation', async () => {
+    const fixture = createRendition();
+    fixture.viewElements[0].style.willChange = 'contents';
+    fixture.viewElements[1].style.willChange = 'opacity';
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    edgeElement.style.transform = 'scale(0.8)';
+    edgeElement.style.willChange = 'opacity';
+    let scrollLeft = fixture.scroller.scrollLeft;
+    const writeScrollLeft = vi.fn((value) => { scrollLeft = value; });
+    Object.defineProperty(fixture.scroller, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: writeScrollLeft,
+    });
+    const frames = createFrameDriver();
+    const diagnostics = createDiagnosticsSpy();
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      ...frames.environment,
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+      diagnostics,
+      timeline: { currentTime: 250 },
+    });
+
+    adapter.begin('stable-cfi', {
+      action: 'drag',
+      edgeElement,
+      inputTime: 40,
+    });
+    adapter.dragBy(-40);
+    const rollback = adapter.animateTo(0, {
+      action: 'rollback',
+      duration: 120,
+      inputTime: 75,
+    });
+
+    expect(fixture.viewElements.every((element) => (
+      element.animate.mock.calls.length === 1
+    ))).toBe(true);
+    expect(edgeElement.animate).toHaveBeenCalledTimes(1);
+    expect(fixture.animations).toHaveLength(3);
+    expect(fixture.animations.map((animation) => animation.startTime)).toEqual([
+      250,
+      250,
+      250,
+    ]);
+
+    const viewKeyframes = fixture.viewElements[0].animate.mock.calls[0][0];
+    const edgeKeyframes = edgeElement.animate.mock.calls[0][0];
+    expect(viewKeyframes[0]).toEqual({
+      offset: 0,
+      transform: 'translate3d(-40px, 0, 0)',
+    });
+    expect(viewKeyframes.at(-1)).toEqual({
+      offset: 1,
+      transform: 'translate3d(0px, 0, 0)',
+    });
+    expect(edgeKeyframes[0].transform).toBe('translate3d(60px, 0, 0)');
+    expect(edgeKeyframes.at(-1).transform).toBe('translate3d(100px, 0, 0)');
+    expect(fixture.viewElements[0].animate.mock.calls[0][1]).toEqual({
+      duration: 120,
+      easing: 'linear',
+      fill: 'forwards',
+    });
+    expect(writeScrollLeft).not.toHaveBeenCalled();
+    expect(fixture.rendition.reportLocation).not.toHaveBeenCalled();
+
+    let rollbackResolved = false;
+    void rollback.then(() => { rollbackResolved = true; });
+    fixture.animations[0].finish();
+    fixture.animations[1].finish();
+    await Promise.resolve();
+    expect(rollbackResolved).toBe(false);
+    fixture.animations[2].finish();
+
+    await expect(rollback).resolves.toEqual({
+      status: 'completed',
+      backend: 'compositor',
+    });
+    expect(fixture.animations.every((animation) => (
+      animation.cancel.mock.calls.length === 1
+    ))).toBe(true);
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+    expect(fixture.viewElements.map((element) => element.style.willChange)).toEqual([
+      'contents',
+      'opacity',
+    ]);
+    expect(edgeElement.style.transform).toBe('scale(0.8)');
+    expect(edgeElement.style.willChange).toBe('opacity');
+    expect(scrollLeft).toBe(100);
+    expect(writeScrollLeft).not.toHaveBeenCalled();
+    expect(fixture.rendition.reportLocation).not.toHaveBeenCalled();
+    expect(adapter.isStableAt(0)).toBe(true);
+    expect(diagnostics.begin).toHaveBeenNthCalledWith(1, {
+      action: 'drag',
+      backend: 'compositor',
+      inputTime: 40,
+    });
+    expect(diagnostics.begin).toHaveBeenNthCalledWith(2, {
+      action: 'rollback',
+      backend: 'compositor',
+      inputTime: 75,
+    });
+
+    adapter.end();
   });
 });
 

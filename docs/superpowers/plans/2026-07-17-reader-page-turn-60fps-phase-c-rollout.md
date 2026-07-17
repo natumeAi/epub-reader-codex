@@ -4,7 +4,7 @@
 
 **Goal:** 在 iPhone 14 Pro Max 和 Lenovo Xiaoxin Pro GT 的移动 Chrome 与安装 PWA 中完成 compositor/scroll A/B 功能和性能矩阵，并且只有两台设备的 PWA compositor 均通过门槛后才将 compositor 设为正常默认后端。
 
-**Architecture:** Phase C 不再改变手势或动画实现；前四个 Task 只收集固定矩阵证据。发布开关仍是 adapter 内的单一默认常量，运行时 capability 和 compositor→scroll→basic 降级始终保留；任何门槛失败都保持 scroll 默认并停止，不通过缩短时长或削减视觉伪造结果。
+**Architecture:** Phase C 不再改变手势或动画实现；前四个用户手动检查点只收集固定矩阵证据。发布开关仍是 adapter 内的单一默认常量，运行时 capability 和 compositor→scroll→basic 降级始终保留；任何门槛失败或缺失都保持 scroll 默认并停止，不通过缩短时长或削减视觉伪造结果。
 
 **Tech Stack:** Phase B compositor/scroll adapter、移动 Chrome、安装 PWA、远程 DevTools、read-only page-turn diagnostics、Vitest、Playwright、Vite
 
@@ -12,10 +12,19 @@
 
 ## Plan Position
 
-- Prerequisite: complete Phase A and Phase B in order.
+- Prerequisite: complete Phase A agent Tasks and Phase B in order; user-supplied Phase A device evidence is required before the Phase C release decision.
 - Recommended order: Phase A → Phase B → **Phase C（本计划）**.
 - Phase C is the only plan allowed to change `DEFAULT_PAGE_TURN_BACKEND` from scroll to compositor.
 - Design source: `docs/superpowers/specs/2026-07-17-reader-page-turn-60fps-design.md`.
+- Execution-ownership source: `docs/superpowers/specs/2026-07-17-reader-page-turn-manual-device-test-ownership-design.md`.
+
+## Execution Ownership and Order
+
+- Manual Checkpoints A–D are user-owned real-device work and are excluded from the agentic “first unfinished Task” order.
+- The user performs device setup, interaction, lifecycle checks and record export. An agent may validate, summarize, format and commit only evidence actually supplied by the user.
+- The only agent-executable sequence is **Task 5 → Task 6**.
+- Task 5 must stop at Step 1 unless user-supplied evidence contains PASS verdicts for both installed-PWA gates. Missing evidence and FAIL are equally blocking; scroll remains the default.
+- Desktop Chromium, emulation and headless measurements must never be substituted for a manual checkpoint.
 
 ## Global Constraints
 
@@ -77,13 +86,13 @@ force scroll/compositor session config
 
 ### 4. Existing coverage consumed
 
-- Phase A scroll baseline for both devices/run modes.
+- User-supplied Phase A scroll baseline for both devices/run modes.
 - Phase B pure easing, capability, view lifecycle, drag/rollback/commit, cancellation and controller tests.
 - Phase B forced compositor/scroll real-Chromium single/multi-chapter, RTL and fallback acceptance.
 
 ### 5. Files affected by Phase C
 
-- Modify in Tasks 1–4: `docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md`
+- Modify from user-supplied Manual Checkpoints A–D evidence: `docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md`
 - Conditionally modify in Task 5: `client/src/utils/epubPageTurnAdapter.js`
 - Test in Task 5: `client/src/utils/epubPageTurnAdapter.test.js`
 - Modify in Task 5: `client/scripts/verify-reader-page-turn.mjs`
@@ -123,7 +132,7 @@ force scroll/compositor session config
 
 ## Shared Device Protocol
 
-Use the same immutable build for all four device Tasks. For each backend/run-mode combination:
+The user uses the same immutable build for all four manual checkpoints. For each backend/run-mode combination:
 
 1. Enable debug with `forceBackend: 'compositor'` or `'scroll'`, reload, and confirm the first record reports that backend.
 2. Clear records before every action group.
@@ -133,7 +142,11 @@ Use the same immutable build for all four device Tasks. For each backend/run-mod
 6. Run one finite functional pass covering chapter boundary, long chapter, image-containing EPUB, four themes, each layout setting category, rotation, background/foreground, close/reopen and reduced motion. During the bounded long-chapter group, record the available layer/GPU-process memory counter before and after the group and require no monotonic retained-layer or memory growth; if a platform exposes no GPU counter, record that limitation and use layer/style/Animation cleanup evidence without inventing a value.
 7. Mark external interruptions separately and repeat only the affected repetition.
 
-### Task 1: Complete iPhone Chrome compositor/scroll preflight
+### Manual Checkpoint A (User-owned): Complete iPhone Chrome compositor/scroll preflight
+
+**Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
+
+**Status:** Pending user evidence.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -159,7 +172,7 @@ Run the Shared Device Protocol in iPhone Chrome, append actual records and finit
 
 - Consumes: Phase A iPhone scroll baseline; Phase B force switch/diagnostics.
 - Produces: iPhone Chrome tables for both backends and a `PASS`/`FAIL` preflight verdict with explicit failed criteria.
-- Affects later Tasks: a P0/P1 failure stops before Task 3; performance evidence informs, but only PWA authorizes Task 5.
+- Affects later work: a P0/P1 failure stops before Manual Checkpoint C; performance evidence informs, but only PWA evidence authorizes Task 5.
 
 #### Implementation Steps
 
@@ -193,7 +206,7 @@ Exercise the listed content/theme/settings/lifecycle cases once per backend wher
 
 List each numeric criterion separately. If any P0/P1 function fails, stop Phase C and report Gate G1. A numeric miss is recorded exactly; do not tune animation semantics in this Task.
 
-- [ ] **Step 6: Commit Task 1 evidence**
+- [ ] **Step 6: Commit the supplied iPhone Chrome evidence**
 
 ```powershell
 git add docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md
@@ -225,7 +238,11 @@ Expected: the current group has 20 completed records for the forced backend and 
 
 - PWA release verdict, other iPhones, implementation tuning, GPU deep profiling and unrelated UI defects.
 
-### Task 2: Complete Lenovo Chrome compositor/scroll preflight
+### Manual Checkpoint B (User-owned): Complete Lenovo Chrome compositor/scroll preflight
+
+**Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
+
+**Status:** Pending user evidence.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -248,9 +265,9 @@ Run the Shared Device Protocol in Lenovo Chrome with the same build/order/schema
 
 #### Interfaces
 
-- Consumes: Phase A Lenovo baseline and Task 1 evidence schema.
+- Consumes: Phase A Lenovo baseline and Manual Checkpoint A evidence schema.
 - Produces: Lenovo Chrome compositor/scroll metrics, functional matrix and preflight verdict.
-- Affects later Tasks: Task 4 uses the same device for the final PWA gate.
+- Affects later work: Manual Checkpoint D uses the same device for the final PWA gate.
 
 #### Implementation Steps
 
@@ -272,9 +289,9 @@ Cover chapter/content/theme/settings/rotation/background/reopen/reduced-motion c
 
 - [ ] **Step 5: Record verdict and clear debug state**
 
-Apply the exact same numeric gates as Task 1. Stop for P0/P1; record numeric misses without redesign.
+Apply the exact same numeric gates as Manual Checkpoint A. Stop for P0/P1; record numeric misses without redesign.
 
-- [ ] **Step 6: Commit Task 2 evidence**
+- [ ] **Step 6: Commit the supplied Lenovo Chrome evidence**
 
 ```powershell
 git add docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md
@@ -285,7 +302,7 @@ git commit -m "docs: record Lenovo Chrome page turn preflight"
 
 - Both backends have complete, action-separated data.
 - Functional and cleanup cases have explicit results.
-- Schema/gates match Task 1.
+- Schema/gates match Manual Checkpoint A.
 - No implementation file changed.
 
 #### Verification
@@ -306,7 +323,11 @@ Expected: 20 completed records for the current forced backend/action group and n
 
 - Installed-PWA verdict, other Android devices, interaction tuning and architecture changes.
 
-### Task 3: Complete the iPhone installed-PWA final gate
+### Manual Checkpoint C (User-owned): Complete the iPhone installed-PWA final gate
+
+**Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
+
+**Status:** Pending user evidence.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -330,7 +351,7 @@ Run the Shared Device Protocol in standalone PWA with the immutable Phase B buil
 
 #### Interfaces
 
-- Consumes: Task 1 iPhone Chrome preflight and Phase A PWA scroll baseline.
+- Consumes: Manual Checkpoint A iPhone Chrome preflight and Phase A PWA scroll baseline.
 - Produces: iPhone PWA compositor/scroll metric tables, functional matrix and one release-gate verdict.
 - Affects later Tasks: Task 5 requires this verdict to be PASS.
 
@@ -356,7 +377,7 @@ Include chapter first/last transitions, long/image books, four themes, font/size
 
 Mark PASS only if every compositor core group meets all four numeric thresholds and every functional case passes. Otherwise mark FAIL with exact groups/criteria; keep scroll default and do not adjust visual/interaction semantics.
 
-- [ ] **Step 6: Commit Task 3 evidence**
+- [ ] **Step 6: Commit the supplied iPhone PWA evidence**
 
 ```powershell
 git add docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md
@@ -388,7 +409,11 @@ Expected: 20 records for the selected group/backend, all terminal, with no persi
 
 - Other iOS devices, offline reading, power profiling, threshold relaxation and code fixes inside the measurement Task.
 
-### Task 4: Complete the Lenovo installed-PWA final gate
+### Manual Checkpoint D (User-owned): Complete the Lenovo installed-PWA final gate
+
+**Ownership:** The user performs all device operations and exports. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
+
+**Status:** Pending user evidence.
 
 **Estimated effort:** 75–90 minutes.
 
@@ -398,7 +423,7 @@ Lenovo installed PWA supplies the second mandatory release verdict, completing t
 
 #### Existing Behavior
 
-Task 2 covers Chrome only; Phase A PWA evidence covers scroll only.
+Manual Checkpoint B covers Chrome only; Phase A PWA evidence covers scroll only.
 
 #### Required Change
 
@@ -412,15 +437,15 @@ Run the identical PWA A/B and functional matrix on Lenovo, append results, and p
 
 #### Interfaces
 
-- Consumes: Task 2 Lenovo preflight and Task 3 PWA schema/gate.
+- Consumes: Manual Checkpoint B Lenovo preflight and Manual Checkpoint C PWA schema/gate.
 - Produces: Lenovo PWA compositor/scroll evidence and release-gate verdict.
-- Affects later Tasks: Task 5 runs only when Tasks 3 and 4 both say PASS.
+- Affects later Tasks: Task 5 runs only when user-supplied Manual Checkpoints C and D both say PASS.
 
 #### Implementation Steps
 
 - [ ] **Step 1: Confirm standalone/build identity**
 
-Record Android/Chrome/PWA metadata and confirm the same commit/server as previous device Tasks.
+Record Android/Chrome/PWA metadata and confirm the same commit/server as the previous manual checkpoints.
 
 - [ ] **Step 2: Capture forced compositor core groups**
 
@@ -438,7 +463,7 @@ Exercise all required content/theme/settings/lifecycle/reduced-motion cases and 
 
 PASS requires every compositor metric and functional case to pass. On FAIL, identify exact criteria, leave scroll default and stop before Task 5.
 
-- [ ] **Step 6: Commit Task 4 evidence**
+- [ ] **Step 6: Commit the supplied Lenovo PWA evidence**
 
 ```powershell
 git add docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md
@@ -479,11 +504,11 @@ Normal unforced sessions prefer compositor on capable readers, while missing cap
 
 #### Existing Behavior
 
-Phase B implements and forces compositor but keeps `DEFAULT_PAGE_TURN_BACKEND = 'scroll'`. Device evidence exists, but normal sessions do not yet use it.
+Phase B implements and forces compositor but keeps `DEFAULT_PAGE_TURN_BACKEND = 'scroll'`. User-supplied manual-checkpoint evidence is the only accepted release input, and normal sessions do not use compositor by default until that evidence passes both PWA gates.
 
 #### Required Change
 
-First verify both PWA verdicts are PASS. Then add a failing default-selection test, flip the single release constant, update default-mode browser expectation and record the completed status in `PROJECT.md` and the evidence document. If either gate is not PASS, do not touch code and report Gate G2 as the blocker.
+First verify both user-supplied PWA verdicts are PASS. Then add a failing default-selection test, flip the single release constant, update default-mode browser expectation and record the completed status in `PROJECT.md` and the evidence document. If either gate is not PASS, do not touch code and report Gate G2 as the blocker.
 
 #### Files
 
@@ -492,11 +517,11 @@ First verify both PWA verdicts are PASS. Then add a failing default-selection te
 - Modify: `client/scripts/verify-reader-page-turn.mjs`
 - Modify: `PROJECT.md`
 - Modify: `docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md`
-- Reference: Phase C Task 3–4 verdict sections.
+- Reference: user-supplied Phase C Manual Checkpoints C–D verdict sections.
 
 #### Interfaces
 
-- Consumes: both PWA PASS verdicts, `selectBackend()` and runtime disable state.
+- Consumes: both user-supplied PWA PASS verdicts, `selectBackend()` and runtime disable state.
 - Produces: `DEFAULT_PAGE_TURN_BACKEND = 'compositor'` with unchanged force override and capability fallback.
 - Affects later Tasks: Task 6 verifies the unforced release behavior.
 
@@ -504,7 +529,7 @@ First verify both PWA verdicts are PASS. Then add a failing default-selection te
 
 - [ ] **Step 1: Enforce the release gate before editing**
 
-Read both PWA verdicts. If either is missing/FAIL, stop, leave scroll default, record the exact blocker and do not perform Steps 2–7.
+Read both user-supplied PWA verdicts. If either is missing/FAIL, stop, leave scroll default, record the exact blocker and do not perform Steps 2–7.
 
 - [ ] **Step 2: Add failing default/fallback tests**
 
@@ -539,7 +564,7 @@ git commit -m "perf: prefer compositor page turns"
 
 #### Done Criteria
 
-- Both PWA verdicts were PASS before code changed.
+- Both user-supplied PWA verdicts were PASS before code changed.
 - Safe unforced sessions select compositor.
 - Capability/runtime failure selects scroll on a fresh operation.
 - Reduced motion/basic path is unchanged.
@@ -575,7 +600,7 @@ The promoted build compiles, passes the direct browser test set, satisfies the a
 
 #### Existing Behavior
 
-Task-level tests and device evidence exist, but the unforced release build has not received the one plan-level final verification required after activation.
+Task-level tests and user-supplied device evidence exist, but the unforced release build has not received the one plan-level final verification required after activation.
 
 #### Required Change
 
@@ -590,7 +615,7 @@ Run exactly one client build and one direct page-turn browser test set, then per
 
 #### Interfaces
 
-- Consumes: Task 5 default selection and all automated/device evidence.
+- Consumes: Task 5 default selection, all automated evidence and all user-supplied device evidence.
 - Produces: final command evidence and one specification-conformance verdict; no new API.
 - Affects later Tasks: none.
 
@@ -606,7 +631,7 @@ Use the browser command below. It must cover unforced compositor, forced scroll,
 
 - [ ] **Step 3: Perform one finite specification check**
 
-Check: all visible stages use the intended backend; numeric device gates are recorded; gesture/timing/easing/visual/page result/CFI/progress/chapter/RTL/reduced/basic behavior is preserved; no persistent will-change/transform/Animation remains.
+Check: all visible stages use the intended backend; numeric user-run device gates are recorded; gesture/timing/easing/visual/page result/CFI/progress/chapter/RTL/reduced/basic behavior is preserved; no persistent will-change/transform/Animation remains.
 
 - [ ] **Step 4: Apply the P0/P1-only rule**
 
@@ -620,7 +645,7 @@ Record completion in the task output; do not request another review or begin ano
 
 - Build exits 0.
 - Direct browser test set exits 0.
-- Both PWA compositor verdicts meet all numeric/functional gates.
+- Both user-supplied PWA compositor verdicts meet all numeric/functional gates.
 - Approved design goals and preserved behaviors have one explicit pass verdict.
 - No unresolved P0/P1 remains.
 
@@ -644,7 +669,7 @@ Expected: both commands exit 0; browser JSON identifies default compositor plus 
 
 ## Phase C Completion State
 
-- Both target devices pass Chrome preflight and installed-PWA final matrices.
-- Compositor is default only when both PWA gates pass.
+- User-supplied evidence shows both target devices pass Chrome preflight and installed-PWA final matrices.
+- Compositor is default only when both user-run PWA gates pass.
 - Scroll and basic remain permanent safe fallbacks.
 - Build/browser/design checks pass once and the plan stops.

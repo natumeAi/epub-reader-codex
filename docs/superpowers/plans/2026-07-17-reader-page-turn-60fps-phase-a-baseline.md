@@ -4,7 +4,7 @@
 
 **Goal:** 在不改变默认 scroll 翻页行为的前提下，加入显式启用的性能诊断与后端强制开关，记录两台目标设备的 scroll 基线，并完成设计指定的低风险帧内写入清理。
 
-**Architecture:** 性能采样作为独立纯工具存在，只有 `sessionStorage` 调试配置显式启用时才创建记录和调试 rAF；adapter 负责写入 backend、帧时间和动画边界，controller 只传入动作与输入时间。Phase A 始终保持 scroll backend 为默认，并把页缝的逐帧 CSS 自定义属性更新改为直接 transform 写入。
+**Architecture:** 性能采样作为独立纯工具存在，只有 `sessionStorage` 调试配置显式启用时才创建记录和调试 rAF；adapter 负责写入 backend、帧时间和动画边界，controller 只传入动作与输入时间。Phase A 始终保持 scroll backend 为默认，并把页缝的逐帧 CSS 自定义属性更新改为直接 transform 写入。两台移动设备的真实操作与采样由用户执行，agent 只执行自动化 Tasks，并且只能处理用户实际提供的设备证据。
 
 **Tech Stack:** React 19、epub.js 0.3.93、Web Performance API、Vitest 3、Testing Library、Playwright 1.61、Vite 7
 
@@ -16,6 +16,15 @@
 - Baseline commit: `7298ca5 fix: preserve reader page geometry during turns` on local branch `dev20260716`.
 - Phase A 可独立停止：结束时默认后端仍为 scroll，现有翻页功能必须可继续使用。
 - Design source: `docs/superpowers/specs/2026-07-17-reader-page-turn-60fps-design.md`.
+- Execution-ownership source: `docs/superpowers/specs/2026-07-17-reader-page-turn-manual-device-test-ownership-design.md`.
+
+## Execution Ownership and Order
+
+- Agent-executable order is **Task 1 → Task 2 → Task 5 → Task 6**. Agentic workers must select the first unfinished item only from this sequence.
+- Manual Checkpoints A–B are user-owned real-device work. They are excluded from agent Task selection even while their checkboxes remain incomplete.
+- The user runs the manual checkpoints against immutable build `4e75942bee03edd272a72384e7a3db815f1309ba` unless an explicitly identified replacement baseline is supplied.
+- An agent may validate, summarize, format and commit only records and metadata actually supplied by the user. It must not operate a substitute desktop/emulated device or invent missing evidence.
+- Pending manual checkpoints do not block Task 5, Task 6 or Phase B because the normal backend remains scroll. They remain required evidence before any Phase C default-backend promotion.
 
 ## Global Constraints
 
@@ -124,7 +133,7 @@ The basic path remains `ReaderView -> controller -> rendition.next()/prev()` exa
 ## Conflicts, Blockers, Existing Issues, Backlog
 
 - **Resolved design precedence:** the approved 60 FPS design supersedes the scroller-only sentence in `PROJECT.md`. Phase A does not yet activate compositor; Phase B Task 5 will update `PROJECT.md` when that path is executable.
-- **Blockers:** none for Phase A. Device access is required for Tasks 3–4, but failure to meet 58 FPS is baseline evidence rather than a Phase A failure.
+- **Blockers:** none for the agent-executable Phase A Tasks. Manual Checkpoints A–B require user device access; missing evidence does not block Tasks 5–6 or Phase B, but it does block any later default-backend promotion. Failure to meet 58 FPS is baseline evidence rather than a Phase A implementation failure.
 - **Existing Issues:** no directly related failure was observed in the fresh directed verification. The full repository suite was intentionally not run during planning.
 - **Backlog:** reverse RTL scroll type, 120 FPS guarantees, unknown low-end devices, a three-page renderer, and any performance work outside the reader remain outside this plan.
 
@@ -423,7 +432,11 @@ Expected: all four selected test files pass.
 
 - Compositor selection, view transforms, browser UI, analytics transport, gesture-rule changes and page-turn duration changes.
 
-### Task 3: Record the iPhone scroll-backend baseline
+### Manual Checkpoint A (User-owned): Record the iPhone scroll-backend baseline
+
+**Ownership:** The user performs all iPhone setup, interaction and record export. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
+
+**Status:** Pending user evidence.
 
 **Estimated effort:** 60–90 minutes.
 
@@ -453,9 +466,9 @@ Run the current scroll path with diagnostics forced to scroll, execute each core
 
 #### Implementation Steps
 
-- [ ] **Step 1: Deploy one immutable build to the iPhone test target**
+- [ ] **Step 1: Deploy the immutable baseline build to the iPhone test target**
 
-Record `git rev-parse HEAD`, OS version, Chrome version and whether the run is a normal tab or installed standalone PWA. Use the same server/build for both modes.
+Use `4e75942bee03edd272a72384e7a3db815f1309ba`, record the exact commit, OS version, Chrome version and whether the run is a normal tab or installed standalone PWA. Use the same server/build for both modes. If the baseline is deliberately replaced, record the exact replacement commit instead of silently using current `HEAD`.
 
 - [ ] **Step 2: Enable forced scroll diagnostics for the session**
 
@@ -487,7 +500,7 @@ Expected: the group contains 20 terminal records for the intended scenario, ever
 
 Write an “iPhone 14 Pro Max — scroll baseline” section with separate Chrome and PWA tables. Include actual aggregate values and an explicit baseline verdict; do not alter code or tune interaction rules in response to the numbers.
 
-- [ ] **Step 6: Clear the debug session and commit evidence**
+- [ ] **Step 6: Clear the debug session and commit the supplied evidence**
 
 ```js
 sessionStorage.removeItem('epub-reader:page-turn-debug');
@@ -525,7 +538,11 @@ Expected: exactly 20 completed scroll records for the current group, with no act
 
 - Passing the 58 FPS gate, changing code based on baseline results, GPU profiling, other iPhones and background-interrupted samples.
 
-### Task 4: Record the Lenovo scroll-backend baseline
+### Manual Checkpoint B (User-owned): Record the Lenovo scroll-backend baseline
+
+**Ownership:** The user performs all Lenovo setup, interaction and record export. Agentic workers must skip this checkpoint when selecting the first unfinished Task; they may only process user-supplied evidence.
+
+**Status:** Pending user evidence.
 
 **Estimated effort:** 60–90 minutes.
 
@@ -535,7 +552,7 @@ The Lenovo Xiaoxin Pro GT has the same reproducible Chrome/PWA scroll baseline s
 
 #### Existing Behavior
 
-Task 3 supplies only iPhone evidence; no Lenovo action-separated baseline exists.
+Manual Checkpoint A supplies only iPhone evidence; no Lenovo action-separated baseline exists.
 
 #### Required Change
 
@@ -549,7 +566,7 @@ Repeat the exact five 20-repetition groups on the Lenovo device in mobile Chrome
 
 #### Interfaces
 
-- Consumes: Task 3 evidence schema and Task 2 diagnostic facade.
+- Consumes: Manual Checkpoint A evidence schema and Task 2 diagnostic facade.
 - Produces: Lenovo Chrome and PWA scroll-baseline tables with the same fields and sample counts.
 - Affects later Tasks: Phase C uses the completed two-device baseline for its default-backend decision.
 
@@ -557,11 +574,11 @@ Repeat the exact five 20-repetition groups on the Lenovo device in mobile Chrome
 
 - [ ] **Step 1: Confirm the immutable build and record device metadata**
 
-Use the same commit as Task 3 and record OS, Chrome version, viewport/orientation and run mode.
+Use the same commit as Manual Checkpoint A and record OS, Chrome version, viewport/orientation and run mode.
 
 - [ ] **Step 2: Enable forced scroll diagnostics**
 
-Use the same `sessionStorage` JSON command from Task 3 and reload before sampling.
+Use the same `sessionStorage` JSON command from Manual Checkpoint A and reload before sampling.
 
 - [ ] **Step 3: Run the Chrome action groups**
 
@@ -575,7 +592,7 @@ Repeat the same five isolated groups in standalone mode. Mark notification, rota
 
 Add Lenovo Chrome/PWA tables, confirm each group contains 20 scroll records and note device/run-mode differences. Baseline values do not need to pass the final compositor gate.
 
-- [ ] **Step 6: Clear debug state and commit**
+- [ ] **Step 6: Clear debug state and commit the supplied evidence**
 
 ```powershell
 git add docs/superpowers/verification/2026-07-17-reader-page-turn-60fps.md
@@ -585,7 +602,7 @@ git commit -m "docs: record Lenovo scroll page turn baseline"
 #### Done Criteria
 
 - Both Lenovo run modes have five complete 20-sample groups.
-- Fields and calculation method match Task 3.
+- Fields and calculation method match Manual Checkpoint A.
 - No implementation/configuration file changes are included.
 - Debug session state is removed after collection.
 
@@ -816,7 +833,7 @@ Expected: exit 0 and final JSON reports scroll backend, cleared temporary styles
 
 ## Phase A Plan-Level Final Verification
 
-After all six Tasks, run exactly one related unit-test set and one client build:
+After all four agent-executable Tasks (Tasks 1, 2, 5 and 6), run exactly one related unit-test set and one client build:
 
 ```powershell
 npm test --prefix client -- pageTurnDiagnostics.test.js pageTurnGesture.test.js epubPageTurnAdapter.test.js usePageTurnController.test.jsx ReaderView.test.jsx
@@ -828,7 +845,7 @@ Expected: both commands exit 0. Then perform one specification check against the
 ## Phase A Completion State
 
 - Default backend is still scroll.
-- Both device/run-mode scroll baselines are recorded.
 - Debugging is opt-in and bounded.
 - Frame-write cleanup is complete and browser-verified.
-- Phase B can begin without activating compositor for normal users.
+- Phase B can begin without activating compositor for normal users, even if Manual Checkpoints A–B are still pending.
+- Full Phase A evidence is complete only after the user supplies both device/run-mode scroll baselines; pending manual evidence must be reported explicitly and never inferred.

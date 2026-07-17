@@ -133,7 +133,7 @@ describe('usePageTurnController navigation', () => {
     expect(harness.adapter.animateTo).toHaveBeenCalledTimes(1);
   });
 
-  it('recovers the stable CFI and enters basic after 1200ms without relocation', async () => {
+  it('recovers the stable CFI and returns to enhanced-ready after 1200ms without relocation', async () => {
     vi.useFakeTimers();
     const harness = createHarness();
     harness.adapter.animateTo.mockResolvedValue({ status: 'completed' });
@@ -149,7 +149,7 @@ describe('usePageTurnController navigation', () => {
     });
 
     expect(harness.adapter.recover).toHaveBeenCalledTimes(1);
-    expect(result.current.phase).toBe('basic');
+    expect(result.current.phase).toBe('idle');
     expect(harness.rendition.next).not.toHaveBeenCalled();
   });
 
@@ -173,9 +173,9 @@ describe('usePageTurnController navigation', () => {
     expect(result.current.phase).toBe('basic');
   });
 
-  it('recovers immediately when enhanced navigation becomes unavailable', async () => {
+  it('recovers to enhanced-ready and uses the adapter on the next operation', async () => {
     const harness = createHarness();
-    harness.adapter.animateTo.mockResolvedValue({ status: 'unavailable' });
+    harness.adapter.animateTo.mockResolvedValueOnce({ status: 'unavailable' });
     const { result } = renderHook(() => usePageTurnController(harness));
     await waitFor(() => expect(result.current.phase).toBe('idle'));
 
@@ -186,7 +186,17 @@ describe('usePageTurnController navigation', () => {
 
     expect(outcome).toBe('failed');
     expect(harness.adapter.recover).toHaveBeenCalledTimes(1);
-    expect(result.current.phase).toBe('basic');
+    expect(result.current.phase).toBe('idle');
+
+    await act(async () => {
+      outcome = await result.current.turnPage('next');
+    });
+
+    expect(outcome).toBe('completed');
+    expect(harness.adapter.begin).toHaveBeenCalledTimes(2);
+    expect(harness.adapter.animateTo).toHaveBeenCalledTimes(2);
+    expect(harness.rendition.next).not.toHaveBeenCalled();
+    expect(harness.rendition.prev).not.toHaveBeenCalled();
   });
 });
 

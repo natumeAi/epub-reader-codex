@@ -80,6 +80,8 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   const cancelFrame =
     environment.cancelAnimationFrame || globalThis.cancelAnimationFrame.bind(globalThis);
   const now = environment.now || (() => globalThis.performance.now());
+  const MutationObserverImpl = environment.MutationObserver ?? globalThis.MutationObserver;
+  const ResizeObserverImpl = environment.ResizeObserver ?? globalThis.ResizeObserver;
   const debugConfig = environment.debugConfig || readPageTurnDebugConfig();
   const diagnostics = environment.diagnostics || createPageTurnDiagnostics({
     enabled: debugConfig.enabled,
@@ -88,12 +90,15 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     requestAnimationFrame: requestFrame,
   });
   let animation = null;
+  let compositorDisabledReason = null;
   let destroyed = false;
+  let enhancedDisabledReason = null;
+  let recoveryCfi = null;
   let session = null;
   let sessionGeneration = 0;
 
-  function result(status, backend = 'scroll') {
-    return { status, backend };
+  function result(status, backend = 'scroll', reason = null) {
+    return reason ? { status, backend, reason } : { status, backend };
   }
 
   function clearDiagnosticReference(recordId) {
@@ -276,10 +281,70 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     };
   }
 
+  function validateCompositorSession(activeSession) {
+    const views = activeSession?.manager?.views;
+    let displayedViews;
+    try {
+      displayedViews = views?.displayed?.call(views);
+    } catch {
+      return 'views';
+    }
+    if (
+      !Array.isArray(displayedViews) ||
+      displayedViews.length !== activeSession.views.length ||
+      displayedViews.some((view, index) => (
+        view !== activeSession.views[index].view ||
+        view?.element !== activeSession.views[index].element
+      ))
+    ) {
+      return 'views';
+    }
+
+    if (activeSession.views.some(({ element }) => !element?.isConnected)) {
+      return 'view-disconnected';
+    }
+
+    const viewportWidth = Number(
+      activeSession.scroller.clientWidth || activeSession.scroller.offsetWidth,
+    );
+    const contentWidth = Number(activeSession.scroller.scrollWidth);
+    if (
+      !Number.isFinite(viewportWidth) ||
+      !Number.isFinite(contentWidth) ||
+      Math.abs(viewportWidth - activeSession.viewportWidth) > ALIGNMENT_EPSILON_PX ||
+      Math.abs(contentWidth - activeSession.contentWidth) > ALIGNMENT_EPSILON_PX
+    ) {
+      return 'geometry';
+    }
+
+    const currentGeometries = activeSession.views.map(({ element }) => (
+      readViewGeometry(element)
+    ));
+    if (currentGeometries.some((geometry) => !geometry)) return 'geometry';
+    const firstSnapshot = activeSession.views[0]?.geometry;
+    const firstCurrent = currentGeometries[0];
+    const changed = currentGeometries.some((geometry, index) => {
+      const snapshot = activeSession.views[index].geometry;
+      return [
+        ['width', snapshot.width, geometry.width],
+        ['height', snapshot.height, geometry.height],
+        ['top', snapshot.top, geometry.top],
+        ['bottom', snapshot.bottom, geometry.bottom],
+        ['left', snapshot.left - firstSnapshot.left, geometry.left - firstCurrent.left],
+        ['right', snapshot.right - firstSnapshot.right, geometry.right - firstCurrent.right],
+      ].some(([, before, after]) => (
+        Math.abs(before - after) > ALIGNMENT_EPSILON_PX
+      ));
+    });
+    return changed ? 'geometry' : null;
+  }
+
   function inspect() {
+    if (enhancedDisabledReason) return unavailable(enhancedDisabledReason);
     const capability = inspectScrollCapability();
     if (!capability.available) return capability;
     if (forcedBackend() === 'compositor') {
+      if (compositorDisabledReason) return unavailable(compositorDisabledReason);
       const compositor = inspectCompositor(capability);
       if (!compositor.available) return unavailable(compositor.reason);
     }
@@ -397,6 +462,25 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     });
   }
 
+  function settleSessionCancellation(activeSession, outcome) {
+    if (!activeSession || activeSession.cancellationSettled) return;
+    activeSession.cancellationSettled = true;
+    activeSession.cancellationOutcome = outcome;
+    activeSession.resolveCancellation?.(outcome);
+  }
+
+  function cancelPendingCompositor(activeSession, outcome) {
+    if (!activeSession || activeSession.backend !== 'compositor') return;
+    if (activeSession.commitFrameId !== null) {
+      cancelFrame(activeSession.commitFrameId);
+      activeSession.commitFrameId = null;
+    }
+    const resolveCommit = activeSession.resolveCommit;
+    activeSession.resolveCommit = null;
+    settleSessionCancellation(activeSession, outcome);
+    resolveCommit?.(outcome);
+  }
+
   function disconnectSessionWatchers(activeSession) {
     activeSession.watchers?.forEach((watcher) => {
       try {
@@ -415,6 +499,70 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     restoreSessionStyles(activeSession);
     activeSession.views?.splice(0);
     activeSession.edgeSnapshot = null;
+  }
+
+  function invalidateCompositorSession(activeSession, reason) {
+    const outcome = result('unavailable', 'compositor', reason);
+    if (
+      !activeSession ||
+      activeSession.backend !== 'compositor' ||
+      session !== activeSession
+    ) {
+      return activeSession?.cancellationOutcome || outcome;
+    }
+
+    compositorDisabledReason = reason;
+    recoveryCfi = activeSession.stableCfi || recoveryCfi;
+    sessionGeneration += 1;
+    cancelPendingCompositor(activeSession, outcome);
+    cancelDiagnostic(activeSession.diagnosticRecordId, reason);
+    try {
+      writeLogical(activeSession.origin, activeSession);
+    } finally {
+      releaseSession(activeSession);
+      session = null;
+    }
+    return outcome;
+  }
+
+  function observeCompositorSession(activeSession) {
+    const invalidateIfNeeded = () => {
+      if (!isCurrentCompositorSession(activeSession, activeSession.generation)) return;
+      const reason = validateCompositorSession(activeSession);
+      if (reason) invalidateCompositorSession(activeSession, reason);
+    };
+
+    if (typeof ResizeObserverImpl === 'function') {
+      let resizeObserver;
+      try {
+        resizeObserver = new ResizeObserverImpl(invalidateIfNeeded);
+        resizeObserver.observe(activeSession.scroller);
+        activeSession.views.forEach(({ element }) => resizeObserver.observe(element));
+        activeSession.watchers.push(resizeObserver);
+      } catch {
+        try {
+          resizeObserver?.disconnect?.();
+        } catch {
+          // Boundary validation still runs before and after Animation.finished.
+        }
+      }
+    }
+
+    const viewContainer = activeSession.manager?.views?.container;
+    if (typeof MutationObserverImpl === 'function' && viewContainer) {
+      let mutationObserver;
+      try {
+        mutationObserver = new MutationObserverImpl(invalidateIfNeeded);
+        mutationObserver.observe(viewContainer, { childList: true });
+        activeSession.watchers.push(mutationObserver);
+      } catch {
+        try {
+          mutationObserver?.disconnect?.();
+        } catch {
+          // Boundary validation remains authoritative when observation is unavailable.
+        }
+      }
+    }
   }
 
   function prepareSessionStyles(activeSession) {
@@ -512,7 +660,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     edgeElement = null,
     inputTime = now(),
   } = {}) {
-    if (destroyed) return null;
+    if (destroyed || enhancedDisabledReason) return null;
     const capability = inspectScrollCapability();
     if (!capability.available) return null;
     const forceBackend = forcedBackend();
@@ -520,15 +668,26 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       forceBackend !== 'scroll' && DEFAULT_PAGE_TURN_BACKEND === 'compositor'
     );
     const compositor = shouldInspectCompositor
-      ? inspectCompositor(capability, edgeElement)
+      ? compositorDisabledReason
+        ? unavailable(compositorDisabledReason)
+        : inspectCompositor(capability, edgeElement)
       : unavailable('not-selected');
     const backend = selectBackend({ compositor, forceBackend });
     if (!backend) return null;
+
+    let resolveCancellation;
+    const cancellationPromise = new Promise((resolve) => {
+      resolveCancellation = resolve;
+    });
 
     session = {
       ...capability,
       animations: [],
       backend,
+      cancellationOutcome: null,
+      cancellationPromise,
+      cancellationSettled: false,
+      contentWidth: Number(capability.scroller.scrollWidth),
       stableCfi,
       edgeElement,
       edgeDirection: null,
@@ -543,7 +702,12 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       previousEdgeTransform: edgeElement?.style.transform || '',
       previousEdgeWillChange: edgeElement?.style.willChange || '',
       previousTransform: capability.scroller.style.transform || '',
+      resolveCancellation,
+      resolveCommit: null,
       views: backend === 'compositor' ? compositor.views : [],
+      viewportWidth: Number(
+        capability.scroller.clientWidth || capability.scroller.offsetWidth,
+      ),
       visualOffset: 0,
       watchers: [],
     };
@@ -556,6 +720,8 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       backend,
       inputTime,
     });
+    recoveryCfi = stableCfi || recoveryCfi;
+    if (backend === 'compositor') observeCompositorSession(session);
     return {
       available: true,
       backend,
@@ -624,11 +790,18 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   }
 
   function end() {
-    if (session) {
-      finishDiagnostic(session.diagnosticRecordId);
-      releaseSession();
+    const activeSession = session;
+    if (activeSession) {
+      finishDiagnostic(activeSession.diagnosticRecordId);
+      sessionGeneration += 1;
+      cancelPendingCompositor(
+        activeSession,
+        result('cancelled', activeSession.backend),
+      );
+      releaseSession(activeSession);
     }
     session = null;
+    recoveryCfi = null;
   }
 
   function beginAnimationDiagnostics(pageDelta, options, startTime) {
@@ -666,7 +839,8 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   function isCurrentCompositorSession(activeSession, generation) {
     return session === activeSession &&
       !destroyed &&
-      activeSession.generation === generation;
+      activeSession.generation === generation &&
+      sessionGeneration === generation;
   }
 
   function restoreCompositorVisual(activeSession) {
@@ -684,11 +858,15 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     diagnosticRecordId,
   ) {
     return new Promise((resolve) => {
+      activeSession.resolveCommit = resolve;
       activeSession.commitFrameId = requestFrame((timestamp) => {
         activeSession.commitFrameId = null;
+        activeSession.resolveCommit = null;
         if (!isCurrentCompositorSession(activeSession, generation)) {
           cancelAnimationGroup(activeSession.animations);
-          resolve(result('cancelled', 'compositor'));
+          resolve(
+            activeSession.cancellationOutcome || result('cancelled', 'compositor'),
+          );
           return;
         }
 
@@ -714,6 +892,13 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       return Promise.resolve(result('unavailable', 'compositor'));
     }
 
+    const validationReason = validateCompositorSession(activeSession);
+    if (validationReason) {
+      return Promise.resolve(
+        invalidateCompositorSession(activeSession, validationReason),
+      );
+    }
+
     const duration = Math.max(0, Number(options.duration) || 0);
     const startTime = now();
     const from = activeSession.visualOffset;
@@ -730,11 +915,19 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       to: targetOffset,
     });
 
-    return group.then(
+    const completion = group.then(
       ({ activeSession: completedSession, generation }) => {
         if (!isCurrentCompositorSession(completedSession, generation)) {
           cancelAnimationGroup(completedSession.animations);
-          return result('cancelled', 'compositor');
+          return completedSession.cancellationOutcome || result('cancelled', 'compositor');
+        }
+
+        const finishedValidationReason = validateCompositorSession(completedSession);
+        if (finishedValidationReason) {
+          return invalidateCompositorSession(
+            completedSession,
+            finishedValidationReason,
+          );
         }
 
         completedSession.visualOffset = targetOffset;
@@ -752,18 +945,26 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
         return result('completed', 'compositor');
       },
       () => {
-        if (session === activeSession) {
-          restoreCompositorVisual(activeSession);
-          cancelDiagnostic(diagnosticRecordId, 'unavailable');
+        if (!isCurrentCompositorSession(activeSession, activeSession.generation)) {
+          return activeSession.cancellationOutcome || result('cancelled', 'compositor');
         }
-        return result('unavailable', 'compositor');
+        return invalidateCompositorSession(activeSession, 'animation');
       },
     );
+    return Promise.race([completion, activeSession.cancellationPromise]);
   }
 
   function animateTo(pageDelta, options = {}) {
-    if (!session || ![-1, 0, 1].includes(pageDelta)) {
-      return Promise.resolve(result('unavailable', session?.backend || 'scroll'));
+    if (!session) {
+      if (compositorDisabledReason && recoveryCfi) {
+        return Promise.resolve(
+          result('unavailable', 'compositor', compositorDisabledReason),
+        );
+      }
+      return Promise.resolve(result('unavailable'));
+    }
+    if (![-1, 0, 1].includes(pageDelta)) {
+      return Promise.resolve(result('unavailable', session.backend));
     }
     if (session.backend === 'compositor') {
       return animateCompositorTo(pageDelta, options);
@@ -860,13 +1061,18 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   }
 
   async function recover() {
-    const stableCfi = session?.stableCfi;
+    const stableCfi = session?.stableCfi || recoveryCfi;
     cancel({ reason: 'recover', restoreOrigin: true });
-    if (!stableCfi || typeof rendition?.display !== 'function') return false;
+    if (!stableCfi || typeof rendition?.display !== 'function') {
+      enhancedDisabledReason = 'recovery';
+      return false;
+    }
     try {
       await rendition.display(stableCfi);
+      recoveryCfi = null;
       return true;
     } catch {
+      enhancedDisabledReason = 'recovery';
       return false;
     }
   }
@@ -874,12 +1080,24 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   function cancel(options = {}) {
     const reason = options.reason || 'cancelled';
     stopAnimation(reason);
-    if (session && options.restoreOrigin !== false) {
-      writeLogical(session.origin);
-    }
-    if (session) {
-      cancelDiagnostic(session.diagnosticRecordId, reason);
-      releaseSession();
+    const activeSession = session;
+    if (activeSession) {
+      recoveryCfi = activeSession.stableCfi || recoveryCfi;
+      sessionGeneration += 1;
+      cancelPendingCompositor(
+        activeSession,
+        result('cancelled', activeSession.backend),
+      );
+      try {
+        if (options.restoreOrigin !== false) {
+          writeLogical(activeSession.origin, activeSession);
+        }
+      } finally {
+        cancelDiagnostic(activeSession.diagnosticRecordId, reason);
+        releaseSession(activeSession);
+        session = null;
+      }
+      return;
     }
     session = null;
   }

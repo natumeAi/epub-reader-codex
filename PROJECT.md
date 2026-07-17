@@ -179,7 +179,7 @@ epub-reader/
   - **Aa 设置**：一个面板集中放阅读设置；字体大小和字体选择放入“字体”二级菜单，页边距、行距、字距、主题保留在主设置层。
 - 设置改动即时作用于 epub.js（`rendition.themes` / `flow` 等），不落桌面式复杂设置页。
 - 阅读器固定使用混合平移翻页且不提供用户切换：左右点按和桌面方向键自动滑动一页，触摸横向拖动显示真实正文并跟手。
-- 增强路径只由 continuous manager 的 scroller 对齐到相邻一个页宽完成，落页后不得再调用 next/prev；基础降级路径不直接移动内部 scroller，只调用一次 rendition.next/prev。同一次操作不能混用两条路径。
+- 增强路径由 adapter 在一次操作内选择短生命周期的 displayed-view compositor 动效或永久保留的 scroller scroll 降级；compositor 成功落页只提交一次 scroller 目标，基础降级路径只调用一次 rendition.next/prev；同一次操作不能混用这些路径。
 - epub.js manager、scroller、layout、RTL scroll type 和 Snap 私有对象只允许由 client/src/utils/epubPageTurnAdapter.js 读取；能力失败时保持基础翻页可用。
 - 目录、Aa 面板均从底部滑起，与控制层显隐一致的触摸交互。
 

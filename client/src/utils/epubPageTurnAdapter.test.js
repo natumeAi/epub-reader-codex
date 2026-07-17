@@ -21,11 +21,23 @@ function createRect({ left = 0, top = 0, width = 100, height = 375 } = {}) {
 
 function createFakeAnimation() {
   let resolveFinished;
+  let rejectFinished;
+  let settled = false;
   return {
     cancel: vi.fn(),
-    finish: vi.fn(() => resolveFinished()),
-    finished: new Promise((resolve) => {
+    fail: vi.fn((error = new Error('animation failed')) => {
+      if (settled) return;
+      settled = true;
+      rejectFinished(error);
+    }),
+    finish: vi.fn(() => {
+      if (settled) return;
+      settled = true;
+      resolveFinished();
+    }),
+    finished: new Promise((resolve, reject) => {
       resolveFinished = resolve;
+      rejectFinished = reject;
     }),
     startTime: null,
   };
@@ -83,6 +95,7 @@ function createRendition(overrides = {}) {
     snapper: {},
     updateLayout: vi.fn(),
     views: {
+      container: viewContainer,
       displayed: vi.fn(() => displayedViews),
     },
   };
@@ -229,6 +242,29 @@ function createFrameDriver() {
       callback = null;
       next?.(nextTime);
     },
+  };
+}
+
+function createObserverDriver() {
+  const mutationObservers = [];
+  const resizeObservers = [];
+  const createObserver = (instances) => class FakeObserver {
+    constructor(callback) {
+      this.callback = callback;
+      this.disconnect = vi.fn();
+      this.observe = vi.fn();
+      this.trigger = (entries = []) => callback(entries, this);
+      instances.push(this);
+    }
+  };
+
+  return {
+    environment: {
+      MutationObserver: createObserver(mutationObservers),
+      ResizeObserver: createObserver(resizeObservers),
+    },
+    mutationObservers,
+    resizeObservers,
   };
 }
 
@@ -856,6 +892,246 @@ describe('forced compositor session preparation', () => {
       adapter.end();
     },
   );
+
+  it.each([
+    ['removed view', 'view-disconnected', ({ viewElements }) => {
+      viewElements[0].remove();
+    }],
+    ['replaced view', 'views', (fixture) => {
+      const replacement = createViewElement(
+        fixture.viewContainer,
+        { left: 0 },
+        fixture.animations,
+      );
+      fixture.viewElements[0].replaceWith(replacement);
+      fixture.manager.views.displayed.mockReturnValue([
+        { displayed: true, element: replacement },
+        fixture.displayedViews[1],
+      ]);
+    }],
+    ['disconnected identity', 'view-disconnected', ({ viewElements }) => {
+      Object.defineProperty(viewElements[0], 'isConnected', {
+        configurable: true,
+        value: false,
+      });
+    }],
+    ['changed geometry', 'geometry', ({ viewElements }) => {
+      viewElements[0].getBoundingClientRect.mockReturnValue(createRect({ width: 120 }));
+    }],
+  ])('invalidates a compositor session for %s before starting another backend', async (
+    _name,
+    reason,
+    mutate,
+  ) => {
+    const fixture = createRendition();
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const debugConfig = { enabled: true, forceBackend: 'compositor' };
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, { debugConfig });
+
+    adapter.begin('stable-cfi', { edgeElement });
+    adapter.dragBy(-40);
+    mutate(fixture);
+    const settling = adapter.animateTo(0, { duration: 120 });
+    fixture.animations.forEach((animation) => animation.finish());
+
+    await expect(settling).resolves.toEqual({
+      status: 'unavailable',
+      backend: 'compositor',
+      reason,
+    });
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+    expect(edgeElement.style.transform).toBe('');
+    expect(fixture.scroller.scrollLeft).toBe(100);
+    expect(adapter.inspect()).toEqual({ available: false, reason });
+    expect(adapter.begin('forced-again', { edgeElement })).toBeNull();
+
+    debugConfig.forceBackend = null;
+    expect(adapter.begin('scroll-fallback', { edgeElement })).toMatchObject({
+      available: true,
+      backend: 'scroll',
+    });
+    adapter.end();
+  });
+
+  it.each([
+    ['rejected', new Error('animation failed')],
+    ['cancelled', new DOMException('Animation cancelled', 'AbortError')],
+  ])('disables compositor after one animation is %s', async (_name, failure) => {
+    const fixture = createRendition();
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const debugConfig = { enabled: true, forceBackend: 'compositor' };
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, { debugConfig });
+
+    adapter.begin('stable-cfi', { edgeElement });
+    adapter.dragBy(-40);
+    const settling = adapter.animateTo(0, { duration: 120 });
+    fixture.animations[0].fail(failure);
+
+    await expect(settling).resolves.toEqual({
+      status: 'unavailable',
+      backend: 'compositor',
+      reason: 'animation',
+    });
+    expect(fixture.animations.every((animation) => (
+      animation.cancel.mock.calls.length === 1
+    ))).toBe(true);
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+    expect(edgeElement.style.transform).toBe('');
+    expect(adapter.inspect()).toEqual({ available: false, reason: 'animation' });
+    expect(adapter.begin('forced-again', { edgeElement })).toBeNull();
+
+    debugConfig.forceBackend = null;
+    expect(adapter.begin('scroll-fallback', { edgeElement })).toMatchObject({
+      backend: 'scroll',
+    });
+    adapter.end();
+  });
+
+  it('observes compositor geometry and child-list changes and disconnects on failure', () => {
+    const fixture = createRendition();
+    const observers = createObserverDriver();
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      ...observers.environment,
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    adapter.begin('stable-cfi', { edgeElement });
+    expect(observers.resizeObservers).toHaveLength(1);
+    expect(observers.mutationObservers).toHaveLength(1);
+    expect(observers.mutationObservers[0].observe).toHaveBeenCalledWith(
+      fixture.viewContainer,
+      { childList: true },
+    );
+    adapter.dragBy(-40);
+    fixture.viewElements[0].getBoundingClientRect.mockReturnValue(createRect({ width: 120 }));
+    observers.resizeObservers[0].trigger();
+
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+    expect(edgeElement.style.transform).toBe('');
+    expect(fixture.scroller.scrollLeft).toBe(100);
+    expect(observers.resizeObservers[0].disconnect).toHaveBeenCalledTimes(1);
+    expect(observers.mutationObservers[0].disconnect).toHaveBeenCalledTimes(1);
+    expect(adapter.inspect()).toEqual({ available: false, reason: 'geometry' });
+  });
+
+  it.each([
+    ['pointercancel', (adapter) => adapter.cancel({
+      reason: 'pointercancel',
+      restoreOrigin: true,
+    }), true],
+    ['viewport resize', (adapter) => adapter.cancel({
+      reason: 'viewport',
+      restoreOrigin: true,
+    }), true],
+    ['settings mutation', (adapter) => adapter.setPageGap(144), true],
+    ['destroy', (adapter) => adapter.destroy(), false],
+  ])('treats %s as external cancellation without disabling compositor', async (
+    name,
+    cancelSession,
+    canRestart,
+  ) => {
+    const fixture = createRendition();
+    const observers = createObserverDriver();
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      ...observers.environment,
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    adapter.begin('stable-cfi', { edgeElement });
+    adapter.dragBy(-40);
+    const settling = adapter.animateTo(0, { duration: 120 });
+    cancelSession(adapter);
+    fixture.animations[0].fail(new DOMException('Cancelled', 'AbortError'));
+
+    await expect(settling).resolves.toEqual({
+      status: 'cancelled',
+      backend: 'compositor',
+    });
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+    expect(edgeElement.style.transform).toBe('');
+    expect(fixture.scroller.scrollLeft).toBe(100);
+    expect(observers.resizeObservers[0].disconnect).toHaveBeenCalledTimes(1);
+    expect(observers.mutationObservers[0].disconnect).toHaveBeenCalledTimes(1);
+
+    if (name === 'settings mutation') {
+      expect(fixture.manager.settings.gap).toBe(144);
+      expect(fixture.manager.updateLayout).toHaveBeenCalledTimes(1);
+    }
+    if (canRestart) {
+      expect(adapter.inspect()).toMatchObject({ available: true });
+      expect(adapter.begin('fresh-cfi', { edgeElement })).toMatchObject({
+        backend: 'compositor',
+      });
+      adapter.cancel();
+    } else {
+      expect(adapter.begin('fresh-cfi', { edgeElement })).toBeNull();
+    }
+  });
+
+  it('ignores stale Animation.finished resolution after a newer session begins', async () => {
+    const fixture = createRendition();
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    adapter.begin('first-cfi', { edgeElement });
+    adapter.dragBy(-40);
+    const firstSettling = adapter.animateTo(0, { duration: 120 });
+    const staleAnimations = fixture.animations.slice();
+    adapter.cancel({ reason: 'pointercancel', restoreOrigin: true });
+
+    adapter.begin('second-cfi', { edgeElement });
+    adapter.dragBy(-20);
+    staleAnimations.forEach((animation) => animation.finish());
+    await expect(firstSettling).resolves.toEqual({
+      status: 'cancelled',
+      backend: 'compositor',
+    });
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual([
+      'translate3d(-20px, 0, 0)',
+      'translate3d(-20px, 0, 0)',
+    ]);
+
+    adapter.cancel();
+  });
+
+  it('cancels a pending compositor commit frame before it can write the target', async () => {
+    const fixture = createRendition();
+    const edgeElement = installFakeWaapi(document.createElement('div'), fixture.animations);
+    let scrollLeft = fixture.scroller.scrollLeft;
+    const writeScrollLeft = vi.fn((value) => { scrollLeft = value; });
+    Object.defineProperty(fixture.scroller, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: writeScrollLeft,
+    });
+    const frames = createFrameDriver();
+    const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+      ...frames.environment,
+      debugConfig: { enabled: true, forceBackend: 'compositor' },
+    });
+
+    adapter.begin('stable-cfi', { edgeElement });
+    const commit = adapter.animateTo(1, { duration: 180 });
+    fixture.animations.forEach((animation) => animation.finish());
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+    adapter.cancel({ reason: 'viewport', restoreOrigin: true });
+    expect(frames.environment.cancelAnimationFrame).toHaveBeenCalledWith(1);
+    await expect(commit).resolves.toEqual({
+      status: 'cancelled',
+      backend: 'compositor',
+    });
+    expect(writeScrollLeft).not.toHaveBeenCalledWith(200);
+    expect(scrollLeft).toBe(100);
+    expect(fixture.viewElements.map((element) => element.style.transform)).toEqual(['', '']);
+  });
 });
 
 it('cancels rAF, restores inline styles, and recovers the stable CFI', async () => {
@@ -923,4 +1199,5 @@ it('returns false when stable CFI recovery display fails', async () => {
   adapter.begin('stable-cfi');
 
   await expect(adapter.recover()).resolves.toBe(false);
+  expect(adapter.inspect()).toEqual({ available: false, reason: 'recovery' });
 });

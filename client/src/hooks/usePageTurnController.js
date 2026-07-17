@@ -204,16 +204,20 @@ export function usePageTurnController({
     }
   }, [renditionRef]);
 
-  const recoverToBasic = useCallback(async (operationVersion) => {
+  const recoverToReady = useCallback(async (operationVersion) => {
+    let restored = false;
     try {
-      await adapter?.recover?.();
+      restored = Boolean(await adapter?.recover?.());
     } catch {
-      // Recovery failure still falls back to basic navigation.
+      restored = false;
     }
     if (!isCurrentOperation(operationVersion)) return false;
-    enterBasic();
-    return true;
-  }, [adapter, enterBasic, isCurrentOperation]);
+    const capability = restored ? adapter?.inspect?.() : null;
+    clearEdge();
+    basicRef.current = !capability?.available;
+    setPhase(basicRef.current ? 'basic' : 'idle');
+    return restored;
+  }, [adapter, clearEdge, isCurrentOperation, setPhase]);
 
   const runEnhancedNavigation = useCallback(async (
     nextDirection,
@@ -243,8 +247,8 @@ export function usePageTurnController({
     if (animation.status !== 'completed') {
       waiter.cancel();
       if (animation.status === 'unavailable') {
-        const recovered = await recoverToBasic(operationVersion);
-        return recovered ? 'failed' : 'ignored';
+        await recoverToReady(operationVersion);
+        return isCurrentOperation(operationVersion) ? 'failed' : 'ignored';
       }
       return 'ignored';
     }
@@ -252,8 +256,8 @@ export function usePageTurnController({
     const location = await waiter.promise;
     if (!isCurrentOperation(operationVersion)) return 'ignored';
     if (!location || !adapter.isStableAt(delta)) {
-      const recovered = await recoverToBasic(operationVersion);
-      return recovered ? 'failed' : 'ignored';
+      await recoverToReady(operationVersion);
+      return isCurrentOperation(operationVersion) ? 'failed' : 'ignored';
     }
 
     adapter.end();
@@ -262,7 +266,7 @@ export function usePageTurnController({
     adapter,
     hideEdge,
     isCurrentOperation,
-    recoverToBasic,
+    recoverToReady,
     renditionRef,
   ]);
 
@@ -470,12 +474,18 @@ export function usePageTurnController({
             Math.abs(dragResult?.effectiveDistanceX || 0),
             pointer.session.pageWidth,
           );
-          await adapter.animateTo(0, {
+          const animation = await adapter.animateTo(0, {
             action: 'rollback',
             duration,
             inputTime: event.timeStamp,
           });
           if (!isCurrentOperation(operationVersion)) return;
+          if (animation.status !== 'completed') {
+            if (animation.status === 'unavailable') {
+              await recoverToReady(operationVersion);
+            }
+            return;
+          }
           hideEdge();
           adapter.end();
           return;
@@ -484,12 +494,18 @@ export function usePageTurnController({
         const neighborReady =
           delta === 1 ? pointer.session.canNext : pointer.session.canPrevious;
         if (!neighborReady) {
-          await adapter.animateTo(0, {
+          const animation = await adapter.animateTo(0, {
             action: 'rollback',
             duration: PAGE_TURN_RULES.settleDurationMinMs,
             inputTime: event.timeStamp,
           });
           if (!isCurrentOperation(operationVersion)) return;
+          if (animation.status !== 'completed') {
+            if (animation.status === 'unavailable') {
+              await recoverToReady(operationVersion);
+            }
+            return;
+          }
           hideEdge();
           adapter.end();
           const location = await readCurrentLocation(renditionRef.current).catch(() => null);
@@ -524,7 +540,7 @@ export function usePageTurnController({
         if (animation.status !== 'completed') {
           waiter.cancel();
           if (animation.status === 'unavailable') {
-            await recoverToBasic(operationVersion);
+            await recoverToReady(operationVersion);
           }
           return;
         }
@@ -532,7 +548,7 @@ export function usePageTurnController({
         if (!isCurrentOperation(operationVersion)) return;
         if (!location || !adapter.isStableAt(delta)) {
           waiter.cancel();
-          await recoverToBasic(operationVersion);
+          await recoverToReady(operationVersion);
         } else {
           adapter.end();
         }
@@ -552,7 +568,7 @@ export function usePageTurnController({
     isCurrentOperation,
     onCenterTap,
     renditionRef,
-    recoverToBasic,
+    recoverToReady,
     restoreReadyPhase,
     runBasicNavigation,
     setPhase,

@@ -246,9 +246,6 @@ export function ReaderView({ book, originRect, onClose }) {
     open: true,
   });
 
-  const goPrev = useCallback(() => turnPage('prev'), [turnPage]);
-  const goNext = useCallback(() => turnPage('next'), [turnPage]);
-
   useEffect(() => {
     if (isLoading || error || activePanel) return undefined;
 
@@ -259,16 +256,22 @@ export function ReaderView({ book, originRect, onClose }) {
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        goPrev();
+        void turnPage('prev', {
+          action: 'tap-prev',
+          inputTime: event.timeStamp,
+        });
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
-        goNext();
+        void turnPage('next', {
+          action: 'tap-next',
+          inputTime: event.timeStamp,
+        });
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activePanel, error, goNext, goPrev, isLoading]);
+  }, [activePanel, error, isLoading, turnPage]);
 
   const goToHref = useCallback((href) => {
     cancelPageTurnRef.current?.('toc');

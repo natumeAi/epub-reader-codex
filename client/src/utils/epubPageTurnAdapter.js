@@ -3,6 +3,10 @@ import {
   dampBoundaryDistance,
   easeOutCubic,
 } from './pageTurnGesture.js';
+import {
+  createPageTurnDiagnostics,
+  readPageTurnDebugConfig,
+} from './pageTurnDiagnostics.js';
 
 const ALIGNMENT_EPSILON_PX = 1;
 const SUPPORTED_RTL_SCROLL_TYPES = new Set(['default', 'negative']);
@@ -66,20 +70,52 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   const cancelFrame =
     environment.cancelAnimationFrame || globalThis.cancelAnimationFrame.bind(globalThis);
   const now = environment.now || (() => globalThis.performance.now());
+  const debugConfig = environment.debugConfig || readPageTurnDebugConfig();
+  const diagnostics = environment.diagnostics || createPageTurnDiagnostics({
+    enabled: debugConfig.enabled,
+    cancelAnimationFrame: cancelFrame,
+    now,
+    requestAnimationFrame: requestFrame,
+  });
   let animation = null;
-
-  function stopAnimation() {
-    if (!animation) return;
-    cancelFrame(animation.frameId);
-    const resolve = animation.resolve;
-    animation = null;
-    resolve({ status: 'cancelled' });
-  }
-
   let destroyed = false;
   let session = null;
 
+  function result(status) {
+    return { status, backend: 'scroll' };
+  }
+
+  function clearDiagnosticReference(recordId) {
+    if (session?.diagnosticRecordId === recordId) {
+      session.diagnosticRecordId = null;
+    }
+  }
+
+  function finishDiagnostic(recordId, endTime = now()) {
+    if (recordId === null || recordId === undefined) return;
+    clearDiagnosticReference(recordId);
+    diagnostics.finish(recordId, endTime);
+  }
+
+  function cancelDiagnostic(recordId, reason = 'cancelled', endTime = now()) {
+    if (recordId === null || recordId === undefined) return;
+    clearDiagnosticReference(recordId);
+    diagnostics.cancel(recordId, reason, endTime);
+  }
+
+  function stopAnimation(reason = 'cancelled') {
+    if (!animation) return;
+    const activeAnimation = animation;
+    cancelFrame(activeAnimation.frameId);
+    animation = null;
+    cancelDiagnostic(activeAnimation.diagnosticRecordId, reason);
+    activeAnimation.resolve(result('cancelled'));
+  }
+
   function inspect() {
+    if (debugConfig.enabled && debugConfig.forceBackend === 'compositor') {
+      return unavailable('forced-compositor-unavailable');
+    }
     const manager = rendition?.manager;
     if (!manager || manager.name !== 'continuous') return unavailable('manager');
     if (!manager.isPaginated) return unavailable('paginated');
@@ -164,14 +200,26 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       : session.previousTransform;
   }
 
-  function begin(stableCfi = null) {
+  function begin(stableCfi = null, {
+    action = 'drag',
+    edgeElement = null,
+    inputTime = now(),
+  } = {}) {
     if (destroyed) return null;
     const capability = inspect();
     if (!capability.available) return null;
+    const diagnosticRecordId = diagnostics.begin({
+      action,
+      backend: 'scroll',
+      inputTime,
+    });
     session = {
       ...capability,
       stableCfi,
+      edgeElement,
       boundaryOffset: 0,
+      diagnosticAction: action,
+      diagnosticRecordId,
       previousTransform: capability.scroller.style.transform || '',
     };
     return {
@@ -200,6 +248,11 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
       writeLogical(session.origin - effectiveDistanceX);
     }
 
+    const frameTime = now();
+    diagnostics.markAnimationStart(session.diagnosticRecordId, frameTime);
+    diagnostics.markVisualUpdate(session.diagnosticRecordId, frameTime);
+    diagnostics.frame(session.diagnosticRecordId, frameTime);
+
     return {
       boundary: missingNeighbor,
       direction,
@@ -225,20 +278,53 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
 
   function end() {
     if (session) {
+      finishDiagnostic(session.diagnosticRecordId);
       session.scroller.style.transform = session.previousTransform;
     }
     session = null;
   }
 
+  function beginAnimationDiagnostics(pageDelta, options, startTime) {
+    const action = options.action || (
+      session.diagnosticAction && session.diagnosticAction !== 'drag'
+        ? session.diagnosticAction
+        : pageDelta === 0
+          ? 'rollback'
+          : 'commit'
+    );
+    const inputTime = Number.isFinite(options.inputTime)
+      ? options.inputTime
+      : startTime;
+
+    if (
+      session.diagnosticRecordId !== null &&
+      session.diagnosticRecordId !== undefined &&
+      session.diagnosticAction !== action
+    ) {
+      finishDiagnostic(session.diagnosticRecordId, inputTime);
+    }
+
+    if (session.diagnosticRecordId === null || session.diagnosticRecordId === undefined) {
+      session.diagnosticRecordId = diagnostics.begin({
+        action,
+        backend: 'scroll',
+        inputTime,
+      });
+    }
+    session.diagnosticAction = action;
+    diagnostics.markAnimationStart(session.diagnosticRecordId, startTime);
+    return session.diagnosticRecordId;
+  }
+
   function animateTo(pageDelta, options = {}) {
     if (!session || ![-1, 0, 1].includes(pageDelta)) {
-      return Promise.resolve({ status: 'unavailable' });
+      return Promise.resolve(result('unavailable'));
     }
     if (
       (pageDelta === 1 && !session.canNext) ||
       (pageDelta === -1 && !session.canPrevious)
     ) {
-      return Promise.resolve({ status: 'unavailable' });
+      return Promise.resolve(result('unavailable'));
     }
 
     stopAnimation();
@@ -249,12 +335,15 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
     const destination = session.origin + pageDelta * session.pageWidth;
     const startsAtDestination = pageDelta !== 0 &&
       Math.abs(startLogical - destination) <= ALIGNMENT_EPSILON_PX;
+    const diagnosticRecordId = beginAnimationDiagnostics(pageDelta, options, startTime);
 
     return new Promise((resolve) => {
-      const tick = () => {
+      const tick = (timestamp) => {
+        const frameTime = Number.isFinite(timestamp) ? timestamp : now();
         if (!session || destroyed) {
           animation = null;
-          resolve({ status: 'cancelled' });
+          cancelDiagnostic(diagnosticRecordId, 'cancelled', frameTime);
+          resolve(result('cancelled'));
           return;
         }
 
@@ -267,6 +356,8 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
 
         writeLogical(logical);
         setBoundaryOffset(boundaryOffset);
+        diagnostics.markVisualUpdate(diagnosticRecordId, frameTime);
+        diagnostics.frame(diagnosticRecordId, frameTime);
         options.onProgress?.({
           pageWidth: session.pageWidth,
           progress: Math.min(
@@ -284,7 +375,8 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
           const reportLocation = rendition?.reportLocation;
           if (typeof reportLocation !== 'function') {
             animation = null;
-            resolve({ status: 'unavailable' });
+            cancelDiagnostic(diagnosticRecordId, 'unavailable');
+            resolve(result('unavailable'));
             return;
           }
 
@@ -295,22 +387,26 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
               () => {
                 if (animation !== activeAnimation) return;
                 animation = null;
-                resolve({ status: 'completed' });
+                finishDiagnostic(diagnosticRecordId);
+                resolve(result('completed'));
               },
               () => {
                 if (animation !== activeAnimation) return;
                 animation = null;
-                resolve({ status: 'unavailable' });
+                cancelDiagnostic(diagnosticRecordId, 'unavailable');
+                resolve(result('unavailable'));
               },
             );
           return;
         }
 
         animation = null;
-        resolve({ status: 'completed' });
+        finishDiagnostic(diagnosticRecordId);
+        resolve(result('completed'));
       };
 
       animation = {
+        diagnosticRecordId,
         frameId: requestFrame(tick),
         resolve,
       };
@@ -319,7 +415,7 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
 
   async function recover() {
     const stableCfi = session?.stableCfi;
-    cancel({ restoreOrigin: true });
+    cancel({ reason: 'recover', restoreOrigin: true });
     if (!stableCfi || typeof rendition?.display !== 'function') return false;
     try {
       await rendition.display(stableCfi);
@@ -330,22 +426,28 @@ export function createEpubPageTurnAdapter(rendition, environment = {}) {
   }
 
   function cancel(options = {}) {
-    stopAnimation();
+    const reason = options.reason || 'cancelled';
+    stopAnimation(reason);
     if (session && options.restoreOrigin !== false) {
       writeLogical(session.origin);
       setBoundaryOffset(0);
     }
-    end();
+    if (session) {
+      cancelDiagnostic(session.diagnosticRecordId, reason);
+      session.scroller.style.transform = session.previousTransform;
+    }
+    session = null;
   }
 
   function destroy() {
-    cancel({ restoreOrigin: true });
+    cancel({ reason: 'destroy', restoreOrigin: true });
+    diagnostics.destroy();
     destroyed = true;
   }
 
   function setPageGap(pageGap) {
     if (destroyed) return false;
-    cancel({ restoreOrigin: true });
+    cancel({ reason: 'page-gap', restoreOrigin: true });
     return configureEpubPageGap(rendition, pageGap);
   }
 

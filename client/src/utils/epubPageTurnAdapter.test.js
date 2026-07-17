@@ -162,6 +162,25 @@ function createFrameDriver() {
   };
 }
 
+function createDiagnosticsSpy() {
+  let nextRecordId = 1;
+  return {
+    begin: vi.fn(() => {
+      const recordId = `record-${nextRecordId}`;
+      nextRecordId += 1;
+      return recordId;
+    }),
+    cancel: vi.fn(),
+    clear: vi.fn(),
+    destroy: vi.fn(),
+    finish: vi.fn(),
+    frame: vi.fn(),
+    getRecords: vi.fn(() => []),
+    markAnimationStart: vi.fn(),
+    markVisualUpdate: vi.fn(),
+  };
+}
+
 it('settles exactly one page and rolls back exactly to the origin', async () => {
   const first = createRendition();
   const firstFrames = createFrameDriver();
@@ -171,7 +190,7 @@ it('settles exactly one page and rolls back exactly to the origin', async () => 
   const completed = firstAdapter.animateTo(1, { duration: 180 });
   firstFrames.step(0);
   firstFrames.step(180);
-  await expect(completed).resolves.toEqual({ status: 'completed' });
+  await expect(completed).resolves.toEqual({ status: 'completed', backend: 'scroll' });
   expect(first.scroller.scrollLeft).toBe(200);
   expect(firstAdapter.isStableAt(1)).toBe(true);
 
@@ -183,7 +202,7 @@ it('settles exactly one page and rolls back exactly to the origin', async () => 
   const reverted = secondAdapter.animateTo(0, { duration: 120 });
   secondFrames.step(0);
   secondFrames.step(120);
-  await expect(reverted).resolves.toEqual({ status: 'completed' });
+  await expect(reverted).resolves.toEqual({ status: 'completed', backend: 'scroll' });
   expect(second.scroller.scrollLeft).toBe(100);
   expect(secondAdapter.isStableAt(0)).toBe(true);
 });
@@ -219,6 +238,106 @@ it('writes the scroller and reports progress once per animation frame', async ()
   expect(scrollLeft).toBe(200);
 });
 
+it('records drag and scroll-animation timing without a second animation frame', async () => {
+  const fixture = createRendition();
+  const frames = createFrameDriver();
+  const diagnostics = createDiagnosticsSpy();
+  const edgeElement = document.createElement('div');
+  const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+    ...frames.environment,
+    debugConfig: { enabled: true, forceBackend: 'scroll' },
+    diagnostics,
+  });
+
+  adapter.begin('stable-cfi', {
+    action: 'drag',
+    edgeElement,
+    inputTime: 40,
+  });
+  expect(diagnostics.begin).toHaveBeenNthCalledWith(1, {
+    action: 'drag',
+    backend: 'scroll',
+    inputTime: 40,
+  });
+
+  adapter.dragBy(-40);
+  expect(diagnostics.markVisualUpdate).toHaveBeenCalledWith('record-1', 0);
+  expect(diagnostics.frame).toHaveBeenCalledWith('record-1', 0);
+  expect(frames.environment.requestAnimationFrame).not.toHaveBeenCalled();
+
+  const settling = adapter.animateTo(1, {
+    action: 'commit',
+    duration: 180,
+    inputTime: 75,
+  });
+  expect(diagnostics.finish).toHaveBeenCalledWith('record-1', 75);
+  expect(diagnostics.begin).toHaveBeenNthCalledWith(2, {
+    action: 'commit',
+    backend: 'scroll',
+    inputTime: 75,
+  });
+  expect(diagnostics.markAnimationStart).toHaveBeenCalledWith('record-2', 0);
+  expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+  frames.step(16);
+  frames.step(180);
+  await expect(settling).resolves.toEqual({ status: 'completed', backend: 'scroll' });
+
+  expect(diagnostics.frame).toHaveBeenCalledWith('record-2', 16);
+  expect(diagnostics.frame).toHaveBeenCalledWith('record-2', 180);
+  expect(diagnostics.markVisualUpdate).toHaveBeenCalledWith('record-2', 16);
+  expect(diagnostics.finish).toHaveBeenCalledWith('record-2', 180);
+  expect(diagnostics.finish).toHaveBeenCalledTimes(2);
+  expect(diagnostics.cancel).not.toHaveBeenCalled();
+  expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(2);
+
+  adapter.destroy();
+  expect(diagnostics.destroy).toHaveBeenCalledTimes(1);
+});
+
+it('does not schedule an extra frame when diagnostics are disabled', async () => {
+  const fixture = createRendition();
+  const frames = createFrameDriver();
+  const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+    ...frames.environment,
+    debugConfig: { enabled: false, forceBackend: null },
+  });
+
+  adapter.begin('stable-cfi', { action: 'drag', inputTime: 10 });
+  adapter.dragBy(-40);
+  expect(frames.environment.requestAnimationFrame).not.toHaveBeenCalled();
+
+  const settling = adapter.animateTo(0, {
+    action: 'rollback',
+    duration: 120,
+    inputTime: 20,
+  });
+  expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(1);
+  frames.step(0);
+  frames.step(120);
+  await expect(settling).resolves.toEqual({ status: 'completed', backend: 'scroll' });
+  expect(frames.environment.requestAnimationFrame).toHaveBeenCalledTimes(2);
+});
+
+it('reports forced compositor as unavailable before Phase B', () => {
+  const fixture = createRendition();
+  const diagnostics = createDiagnosticsSpy();
+  const adapter = createEpubPageTurnAdapter(fixture.rendition, {
+    debugConfig: { enabled: true, forceBackend: 'compositor' },
+    diagnostics,
+  });
+
+  expect(adapter.inspect()).toEqual({
+    available: false,
+    reason: 'forced-compositor-unavailable',
+  });
+  expect(adapter.begin('stable-cfi', {
+    action: 'tap-next',
+    inputTime: 75,
+  })).toBeNull();
+  expect(diagnostics.begin).not.toHaveBeenCalled();
+});
+
 it('cancels rAF, restores inline styles, and recovers the stable CFI', async () => {
   const fixture = createRendition();
   fixture.scroller.style.transform = 'scale(1)';
@@ -229,7 +348,7 @@ it('cancels rAF, restores inline styles, and recovers the stable CFI', async () 
   const settling = adapter.animateTo(1, { duration: 180 });
 
   adapter.cancel({ restoreOrigin: true });
-  await expect(settling).resolves.toEqual({ status: 'cancelled' });
+  await expect(settling).resolves.toEqual({ status: 'cancelled', backend: 'scroll' });
   expect(frames.environment.cancelAnimationFrame).toHaveBeenCalledTimes(1);
   expect(fixture.scroller.scrollLeft).toBe(100);
   expect(fixture.scroller.style.transform).toBe('scale(1)');
@@ -253,7 +372,7 @@ it('reports the stable location when animation starts at the target page', async
   frames.step(0);
   frames.step(120);
 
-  await expect(settling).resolves.toEqual({ status: 'completed' });
+  await expect(settling).resolves.toEqual({ status: 'completed', backend: 'scroll' });
   expect(fixture.rendition.reportLocation).toHaveBeenCalledTimes(1);
 });
 
@@ -274,7 +393,7 @@ it.each([
   frames.step(0);
   frames.step(120);
 
-  await expect(settling).resolves.toEqual({ status: 'unavailable' });
+  await expect(settling).resolves.toEqual({ status: 'unavailable', backend: 'scroll' });
 });
 
 it('returns false when stable CFI recovery display fails', async () => {

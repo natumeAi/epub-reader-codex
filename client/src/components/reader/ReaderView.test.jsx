@@ -156,13 +156,25 @@ describe('ReaderView behavior', () => {
     fireEvent.pointerCancel(gestureLayer, {
       pointerId: 1, pointerType: 'touch',
     });
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    const nextKey = new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' });
+    Object.defineProperty(nextKey, 'timeStamp', { value: 75 });
+    fireEvent(window, nextKey);
+    const previousKey = new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowLeft' });
+    Object.defineProperty(previousKey, 'timeStamp', { value: 80 });
+    fireEvent(window, previousKey);
 
     expect(mocks.handlePointerDown).toHaveBeenCalledTimes(1);
     expect(mocks.handlePointerMove).toHaveBeenCalledTimes(1);
     expect(mocks.handlePointerUp).toHaveBeenCalledTimes(1);
     expect(mocks.handlePointerCancel).toHaveBeenCalledTimes(1);
-    expect(mocks.turnPage).toHaveBeenCalledWith('next');
+    expect(mocks.turnPage).toHaveBeenNthCalledWith(1, 'next', {
+      action: 'tap-next',
+      inputTime: 75,
+    });
+    expect(mocks.turnPage).toHaveBeenNthCalledWith(2, 'prev', {
+      action: 'tap-prev',
+      inputTime: 80,
+    });
     expect(document.querySelector('.reader-page-turn-sheet')).toBeNull();
     expect(document.querySelectorAll('.reader-page-edge')).toHaveLength(1);
   });

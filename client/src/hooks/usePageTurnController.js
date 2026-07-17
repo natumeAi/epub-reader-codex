@@ -157,12 +157,12 @@ export function usePageTurnController({
     pointerRef.current = null;
   }, [clearDragFrame, releasePointer]);
 
-  const cancelPageTurn = useCallback(() => {
+  const cancelPageTurn = useCallback((reason = 'cancelled') => {
     cancellationVersionRef.current += 1;
     relocationWaitRef.current?.cancel();
     relocationWaitRef.current = null;
     finishPointer();
-    adapter?.cancel({ restoreOrigin: true });
+    adapter?.cancel({ reason, restoreOrigin: true });
     restoreReadyPhase();
   }, [adapter, finishPointer, restoreReadyPhase]);
 
@@ -230,6 +230,7 @@ export function usePageTurnController({
     nextDirection,
     session,
     operationVersion,
+    interaction,
   ) => {
     const delta = pageDelta(nextDirection);
     const rendition = renditionRef.current;
@@ -240,7 +241,9 @@ export function usePageTurnController({
     );
     relocationWaitRef.current = waiter;
     const animation = await adapter.animateTo(delta, {
+      action: interaction.action,
       duration: PAGE_TURN_RULES.tapDurationMs,
+      inputTime: interaction.inputTime,
       onProgress: ({ pageWidth, progress }) => {
         writeEdgeProgress(nextDirection, progress, pageWidth);
       },
@@ -278,10 +281,14 @@ export function usePageTurnController({
     writeEdgeProgress,
   ]);
 
-  const turnPage = useCallback(async (nextDirection) => {
+  const turnPage = useCallback(async (nextDirection, interaction = {}) => {
     if (!['idle', 'basic'].includes(phaseRef.current)) return 'ignored';
     const rendition = renditionRef.current;
     if (!rendition || !['prev', 'next'].includes(nextDirection)) return 'ignored';
+    const inputTime = Number.isFinite(interaction.inputTime)
+      ? interaction.inputTime
+      : performance.now();
+    const action = interaction.action || `tap-${nextDirection}`;
 
     const operationVersion = cancellationVersionRef.current;
     setPhase('settling');
@@ -294,7 +301,11 @@ export function usePageTurnController({
         return await runBasicNavigation(nextDirection);
       }
 
-      const session = adapter?.begin(currentCfiRef.current);
+      const session = adapter?.begin(currentCfiRef.current, {
+        action,
+        edgeElement: edgeRef.current,
+        inputTime,
+      });
       if (!session) {
         enterBasic();
         return await runBasicNavigation(nextDirection);
@@ -309,13 +320,17 @@ export function usePageTurnController({
 
       setDirection(nextDirection);
       writeEdgeProgress(nextDirection, 0, session.pageWidth);
-      return await runEnhancedNavigation(nextDirection, session, operationVersion);
+      return await runEnhancedNavigation(nextDirection, session, operationVersion, {
+        action,
+        inputTime,
+      });
     } finally {
       if (isCurrentOperation(operationVersion)) restoreReadyPhase();
     }
   }, [
     adapter,
     currentCfiRef,
+    edgeRef,
     enterBasic,
     isCurrentOperation,
     renditionRef,
@@ -339,7 +354,11 @@ export function usePageTurnController({
     let session = null;
     let mode = touch ? 'basic' : 'tap';
     if (touch && !basicRef.current) {
-      session = adapter?.begin(currentCfiRef.current);
+      session = adapter?.begin(currentCfiRef.current, {
+        action: 'drag',
+        edgeElement: edgeRef.current,
+        inputTime: event.timeStamp,
+      });
       if (session) mode = 'enhanced';
       else enterBasic();
     }
@@ -359,7 +378,7 @@ export function usePageTurnController({
       samples: [{ x: event.clientX, time: event.timeStamp }],
     };
     setPhase('pending');
-  }, [adapter, currentCfiRef, disabled, enterBasic, setPhase]);
+  }, [adapter, currentCfiRef, disabled, edgeRef, enterBasic, setPhase]);
 
   const handlePointerMove = useCallback((event) => {
     const pointer = pointerRef.current;
@@ -417,7 +436,10 @@ export function usePageTurnController({
         const rect = event.currentTarget.getBoundingClientRect();
         const zone = getTapZone(event.clientX, rect.left, rect.width);
         if (zone === 'center') onCenterTap?.();
-        else await turnPage(zone);
+        else await turnPage(zone, {
+          action: `tap-${zone}`,
+          inputTime: event.timeStamp,
+        });
         return;
       }
 
@@ -465,7 +487,9 @@ export function usePageTurnController({
             pointer.session.pageWidth,
           );
           await adapter.animateTo(0, {
+            action: 'rollback',
             duration,
+            inputTime: event.timeStamp,
             onProgress: ({ pageWidth, progress }) => {
               writeEdgeProgress(nextDirection, progress, pageWidth);
             },
@@ -480,7 +504,9 @@ export function usePageTurnController({
           delta === 1 ? pointer.session.canNext : pointer.session.canPrevious;
         if (!neighborReady) {
           await adapter.animateTo(0, {
+            action: 'rollback',
             duration: PAGE_TURN_RULES.settleDurationMinMs,
+            inputTime: event.timeStamp,
             onProgress: ({ pageWidth, progress }) => {
               writeEdgeProgress(nextDirection, progress, pageWidth);
             },
@@ -508,7 +534,9 @@ export function usePageTurnController({
         );
         relocationWaitRef.current = waiter;
         const animation = await adapter.animateTo(delta, {
+          action: 'commit',
           duration: getSettleDuration(remaining, pointer.session.pageWidth),
+          inputTime: event.timeStamp,
           onProgress: ({ pageWidth, progress }) => {
             writeEdgeProgress(nextDirection, progress, pageWidth);
           },

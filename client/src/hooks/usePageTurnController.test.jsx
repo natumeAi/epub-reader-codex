@@ -72,12 +72,27 @@ describe('usePageTurnController navigation', () => {
     await waitFor(() => expect(result.current.phase).toBe('idle'));
 
     await act(async () => {
-      await result.current.turnPage('next');
+      await result.current.turnPage('next', {
+        action: 'tap-next',
+        inputTime: 75,
+      });
     });
 
+    expect(harness.adapter.begin).toHaveBeenCalledWith(
+      'stable-cfi',
+      expect.objectContaining({
+        action: 'tap-next',
+        edgeElement: harness.edgeRef.current,
+        inputTime: 75,
+      }),
+    );
     expect(harness.adapter.animateTo).toHaveBeenCalledWith(
       1,
-      expect.objectContaining({ duration: 180 }),
+      expect.objectContaining({
+        action: 'tap-next',
+        duration: 180,
+        inputTime: 75,
+      }),
     );
     expect(harness.rendition.next).not.toHaveBeenCalled();
     expect(harness.rendition.prev).not.toHaveBeenCalled();
@@ -266,7 +281,51 @@ it.each([
 
   expect(harness.adapter.animateTo).toHaveBeenCalledWith(
     expectedDelta,
-    expect.objectContaining({ duration: expect.any(Number) }),
+    expect.objectContaining({
+      action: expectedDelta === 0 ? 'rollback' : 'commit',
+      duration: expect.any(Number),
+      inputTime: moveTime,
+    }),
+  );
+  expect(harness.adapter.begin).toHaveBeenCalledWith(
+    'stable-cfi',
+    expect.objectContaining({
+      action: 'drag',
+      edgeElement: harness.edgeRef.current,
+      inputTime: 0,
+    }),
+  );
+});
+
+it('uses the pointer-up timestamp for tap navigation', async () => {
+  const harness = createHarness();
+  const { result } = renderHook(() => usePageTurnController(harness));
+  await waitFor(() => expect(result.current.phase).toBe('idle'));
+
+  const down = pointerEvent({
+    clientX: 350,
+    pointerType: 'mouse',
+    timeStamp: 40,
+  });
+  const up = pointerEvent({
+    clientX: 350,
+    pointerType: 'mouse',
+    timeStamp: 75,
+  });
+  act(() => result.current.handlePointerDown(down));
+  await act(async () => {
+    result.current.handlePointerUp(up);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(harness.adapter.begin).toHaveBeenCalledWith(
+    'stable-cfi',
+    expect.objectContaining({
+      action: 'tap-next',
+      edgeElement: harness.edgeRef.current,
+      inputTime: 75,
+    }),
   );
 });
 

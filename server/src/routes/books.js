@@ -16,6 +16,7 @@ import {
   getBookFilePath,
   inspectEpubFile,
   listBooks,
+  listCatalogBooks,
   updateShelfBookOrder,
 } from '../services/bookLibrary.js';
 
@@ -119,6 +120,15 @@ router.get('/', (req, res, next) => {
     const books = folderId === undefined ? listBooks(db) : listBooks(db, { folderId });
 
     res.json({ books });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/catalog', (req, res, next) => {
+  try {
+    const db = requireDatabase(req);
+    res.json({ books: listCatalogBooks(db) });
   } catch (err) {
     next(err);
   }

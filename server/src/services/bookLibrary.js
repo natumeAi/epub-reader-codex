@@ -94,6 +94,26 @@ export function listBooks(db, options = {}) {
   return rows.map(formatBook);
 }
 
+export function listCatalogBooks(db) {
+  const rows = db.prepare(`
+    SELECT b.*,
+           f.name AS folder_name,
+           rp.progress AS reading_progress,
+           rp.updated_at AS reading_updated_at
+    FROM books b
+    LEFT JOIN folders f ON f.id = b.folder_id
+    LEFT JOIN reading_progress rp ON rp.book_id = b.id
+    ORDER BY b.id ASC
+  `).all();
+
+  return rows.map((row) => ({
+    ...formatBook(row),
+    folderName: row.folder_name ?? null,
+    readingProgress: row.reading_progress ?? null,
+    readingUpdatedAt: row.reading_updated_at ?? null,
+  }));
+}
+
 export function updateShelfBookOrder(db, bookIds) {
   const currentBookIds = db
     .prepare(

@@ -18,6 +18,7 @@ const READER_FLIP_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)';
 const READER_COVER_FADE_MS = 200;
 // Fallback when the origin/target cover rect can't be found (e.g. off-screen).
 const READER_FALLBACK_ANIM_MS = 220;
+const noop = () => {};
 
 function isKeyboardEditingTarget(target) {
   if (!(target instanceof Element)) return false;
@@ -35,7 +36,13 @@ function rectToTransformString(rect) {
   return `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / vw}, ${rect.height / vh})`;
 }
 
-export function ReaderView({ book, originRect, onBookUnavailable, onClose }) {
+export function ReaderView({
+  book,
+  originRect,
+  onBookUnavailable,
+  onClose,
+  onProgressSettled = noop,
+}) {
   const reducedMotion = useReducedMotion();
   const containerRef = useRef(null);
   const bookRef = useRef(null);
@@ -215,7 +222,11 @@ export function ReaderView({ book, originRect, onBookUnavailable, onClose }) {
     cancelPageTurnRef.current?.('close');
     if (isClosingRef.current) return;
     isClosingRef.current = true;
-    void flushProgress({ keepalive: true });
+    const progressFlush = flushProgress({ keepalive: true });
+    void Promise.resolve(progressFlush).then(
+      () => onProgressSettled(),
+      () => onProgressSettled(),
+    );
     if (reducedMotion) {
       onClose();
       return;
@@ -239,7 +250,7 @@ export function ReaderView({ book, originRect, onBookUnavailable, onClose }) {
       setIsFallbackClosing(true);
       setTimeout(onClose, READER_FALLBACK_ANIM_MS);
     }
-  }, [book?.id, flushProgress, onClose, reducedMotion]);
+  }, [book?.id, flushProgress, onClose, onProgressSettled, reducedMotion]);
 
   const { dialogRef, onKeyDown: onDialogKeyDown } = useModalDialog({
     initialFocusRef: readerInitialFocusRef,

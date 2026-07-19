@@ -74,6 +74,16 @@ vi.mock('./ReaderTopBar.jsx', () => ({
   ReaderTopBar: ({ onClose }) => <button type="button" onClick={onClose}>关闭</button>,
 }));
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 describe('ReaderView behavior', () => {
   beforeEach(() => {
     mocks.cancelPageTurn.mockClear();
@@ -113,13 +123,18 @@ describe('ReaderView behavior', () => {
     mocks.useReducedMotion.mockReturnValue(true);
   });
 
-  it('composes the outbox hook and requests keepalive when closing', () => {
+  it('closes immediately and reports after the progress flush settles', async () => {
+    const progressFlush = deferred();
+    const onClose = vi.fn();
+    const onProgressSettled = vi.fn();
     const onBookUnavailable = vi.fn();
+    mocks.flushProgress.mockReturnValue(progressFlush.promise);
     render(
       <ReaderView
         book={{ id: 12, title: '测试书' }}
         onBookUnavailable={onBookUnavailable}
-        onClose={vi.fn()}
+        onClose={onClose}
+        onProgressSettled={onProgressSettled}
       />,
     );
 
@@ -133,6 +148,34 @@ describe('ReaderView behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(mocks.flushProgress).toHaveBeenCalledWith({ keepalive: true });
     expect(mocks.cancelPageTurn).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onProgressSettled).not.toHaveBeenCalled();
+
+    await act(async () => {
+      progressFlush.resolve();
+      await progressFlush.promise;
+    });
+    expect(onProgressSettled).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports progress settled after a failed close flush', async () => {
+    const progressFlush = deferred();
+    const onProgressSettled = vi.fn();
+    mocks.flushProgress.mockReturnValue(progressFlush.promise);
+    render(
+      <ReaderView
+        book={{ id: 12, title: '测试书' }}
+        onClose={vi.fn()}
+        onProgressSettled={onProgressSettled}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    await act(async () => {
+      progressFlush.reject(new Error('offline'));
+      await Promise.resolve();
+    });
+    expect(onProgressSettled).toHaveBeenCalledTimes(1);
   });
 
   it('routes keyboard and pointer input through the page-turn controller', async () => {

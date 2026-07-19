@@ -127,8 +127,7 @@ function App() {
     openBook(book, originRect, { disabled: isSavingOrder });
   }
 
-  function handleCloseReader() {
-    closeReader();
+  function handleReaderProgressSettled() {
     void Promise.all([loadRecentReading(), loadCatalog()]);
   }
 
@@ -198,7 +197,8 @@ function App() {
               book={readingBook}
               originRect={readingBookOrigin}
               onBookUnavailable={handleBookUnavailable}
-              onClose={handleCloseReader}
+              onClose={closeReader}
+              onProgressSettled={handleReaderProgressSettled}
             />
           </Suspense>
         )}

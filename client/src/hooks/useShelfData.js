@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { listBookCatalog } from '../api/booksApi.js';
 import {
   listShelfItems,
 } from '../api/foldersApi.js';
@@ -13,36 +14,59 @@ export function useShelfData({ restoreReaderBook } = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [error, setError] = useState('');
+  const [catalogBooks, setCatalogBooks] = useState([]);
+  const [catalogError, setCatalogError] = useState('');
+  const [hasLoadedCatalog, setHasLoadedCatalog] = useState(false);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(true);
 
   const loadRecentReading = useCallback(async () => {
     try {
       const data = await listRecentReading();
-      setRecentReadingItems(data.items || []);
+      const items = data.items || [];
+      setRecentReadingItems(items);
+      return { items };
     } catch {
       setRecentReadingItems([]);
+      return { items: [] };
+    }
+  }, []);
+
+  const loadCatalog = useCallback(async () => {
+    setIsCatalogLoading(true);
+    setCatalogError('');
+
+    try {
+      const data = await listBookCatalog();
+      setCatalogBooks(data.books || []);
+      return data;
+    } catch (err) {
+      setCatalogError(err.message || '搜索目录加载失败');
+      return null;
+    } finally {
+      setHasLoadedCatalog(true);
+      setIsCatalogLoading(false);
     }
   }, []);
 
   const loadShelf = useCallback(async () => {
     setIsLoading(true);
     setError('');
+    const recentPromise = loadRecentReading();
+    const catalogPromise = loadCatalog();
 
     try {
-      const [shelfData, recentData] = await Promise.all([
-        listShelfItems(),
-        listRecentReading().catch(() => ({ items: [] })),
-      ]);
-
+      const shelfData = await listShelfItems();
       setShelfItems((shelfData.items || []).map(normalizeShelfItem));
-      setRecentReadingItems(recentData.items || []);
+      const recentData = await recentPromise;
       await restoreReaderBook?.(shelfData, recentData);
     } catch (err) {
       setError(err.message || '无法加载书架');
     } finally {
+      await Promise.allSettled([recentPromise, catalogPromise]);
       setHasLoadedShelf(true);
       setIsLoading(false);
     }
-  }, [restoreReaderBook]);
+  }, [loadCatalog, loadRecentReading, restoreReaderBook]);
 
   const {
     handleFileChange,
@@ -65,12 +89,17 @@ export function useShelfData({ restoreReaderBook } = {}) {
   }, []);
 
   return {
+    catalogBooks,
+    catalogError,
     error,
     handleFileChange,
+    hasLoadedCatalog,
     hasLoadedShelf,
+    isCatalogLoading,
     isLoading,
     isSavingOrder,
     isUploading,
+    loadCatalog,
     loadRecentReading,
     loadShelf,
     recentReadingItems,

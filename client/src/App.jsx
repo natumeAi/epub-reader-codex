@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef } from 'react';
+import { lazy, Suspense, useCallback, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -28,12 +28,17 @@ function App() {
     restoreReaderBook,
   } = useReaderSession();
   const {
+    catalogBooks,
+    catalogError,
     error,
     handleFileChange,
+    hasLoadedCatalog,
     hasLoadedShelf,
+    isCatalogLoading,
     isLoading,
     isSavingOrder,
     isUploading,
+    loadCatalog,
     loadRecentReading,
     loadShelf,
     recentReadingItems,
@@ -44,6 +49,10 @@ function App() {
     shelfItems,
     uploadProgress,
   } = useShelfData({ restoreReaderBook });
+  const handleFolderRenamed = useCallback((renamedFolder) => {
+    replaceShelfFolder(renamedFolder);
+    void loadShelf();
+  }, [loadShelf, replaceShelfFolder]);
   const {
     folderBooks,
     folderCloseVersion,
@@ -68,9 +77,7 @@ function App() {
     setIsRenamingFolder,
     setIsSavingFolderOrder,
     setOpenFolder,
-  } = useFolderState({
-    onFolderRenamed: replaceShelfFolder,
-  });
+  } = useFolderState({ onFolderRenamed: handleFolderRenamed });
   const {
     deleteCandidateBook,
     handleCancelDeleteBook,
@@ -122,7 +129,7 @@ function App() {
 
   function handleCloseReader() {
     closeReader();
-    loadRecentReading();
+    void Promise.all([loadRecentReading(), loadCatalog()]);
   }
 
   function handleOpenFolder(folder) {
@@ -144,16 +151,22 @@ function App() {
     >
       <main className="app-shell" aria-label="EPUB Reader">
         <LibraryHome
+          catalogBooks={catalogBooks}
+          catalogError={catalogError}
           dragIntent={dragIntent}
           error={error}
           fileInputRef={fileInputRef}
+          hasLoadedCatalog={hasLoadedCatalog}
           hasLoadedShelf={hasLoadedShelf}
+          isCatalogLoading={isCatalogLoading}
           isLoading={isLoading}
           isSavingOrder={isSavingOrder}
           isUploading={isUploading}
           onFileChange={handleFileChange}
           onOpenBook={handleOpenBook}
           onOpenFolder={handleOpenFolder}
+          onRetryCatalog={loadCatalog}
+          onRetryShelf={loadShelf}
           recentReadingItems={recentReadingItems}
           shelfItems={shelfItems}
           uploadProgress={uploadProgress}

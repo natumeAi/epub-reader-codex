@@ -8,6 +8,16 @@ export async function listBooks() {
   return response.json();
 }
 
+export async function listBookCatalog() {
+  const response = await fetch('/api/books/catalog');
+
+  if (!response.ok) {
+    throw new Error('搜索目录加载失败');
+  }
+
+  return response.json();
+}
+
 export async function getBook(bookId) {
   const response = await fetch(`/api/books/${bookId}`);
 

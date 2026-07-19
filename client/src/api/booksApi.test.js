@@ -1,5 +1,34 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { uploadBook } from './booksApi.js';
+import { listBookCatalog, uploadBook } from './booksApi.js';
+
+describe('listBookCatalog', () => {
+  it('reads the complete read-only catalog', async () => {
+    const payload = {
+      books: [{
+        id: 7,
+        folderId: 3,
+        folderName: '历史',
+        title: '万历十五年',
+        author: '黄仁宇',
+        createdAt: '2026-07-18T00:00:00.000Z',
+        readingProgress: 0.42,
+        readingUpdatedAt: '2026-07-18T01:00:00.000Z',
+      }],
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => payload,
+    }));
+
+    await expect(listBookCatalog()).resolves.toEqual(payload);
+    expect(fetch).toHaveBeenCalledWith('/api/books/catalog');
+  });
+
+  it('uses a catalog-specific error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+    await expect(listBookCatalog()).rejects.toThrow('搜索目录加载失败');
+  });
+});
 
 describe('uploadBook', () => {
   afterEach(() => vi.unstubAllGlobals());

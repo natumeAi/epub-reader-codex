@@ -81,6 +81,42 @@ describe('LibraryHome composition', () => {
     expect(onRetryCatalog).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps All available as an escape when catalog refresh is unavailable', () => {
+    const props = createHomeProps();
+    const { rerender } = render(
+      <DndContext><LibraryHome {...props} /></DndContext>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '最近添加' }));
+    expect(screen.getByRole('button', { name: '最近添加' }))
+      .toHaveAttribute('aria-pressed', 'true');
+
+    rerender(
+      <DndContext><LibraryHome {...props} isCatalogLoading /></DndContext>,
+    );
+    expect(screen.getByRole('button', { name: '全部' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '最近添加' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '文件夹' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '排序方式' })).toBeDisabled();
+
+    rerender(
+      <DndContext>
+        <LibraryHome {...props} catalogError="搜索目录加载失败" />
+      </DndContext>,
+    );
+    expect(screen.getByRole('button', { name: '全部' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '最近添加' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '文件夹' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '排序方式' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '全部' }));
+    expect(screen.getByRole('button', { name: '全部' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('combobox', { name: '排序方式' }))
+      .toHaveValue('manual');
+    expect(screen.getByLabelText('可编辑书架列表')).toBeInTheDocument();
+  });
+
   it('shows a shelf-specific retry without replacing search', () => {
     const onRetryShelf = vi.fn();
     renderHome({ error: '无法加载书架', onRetryShelf, shelfItems: [] });

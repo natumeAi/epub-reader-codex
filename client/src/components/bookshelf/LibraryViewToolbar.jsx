@@ -30,7 +30,7 @@ export function LibraryViewToolbar({
               key={option.value}
               type="button"
               aria-pressed={view === option.value}
-              disabled={controlsDisabled}
+              disabled={controlsDisabled && option.value !== LIBRARY_VIEW.ALL}
               onClick={() => onViewChange(option.value)}
             >
               {option.label}

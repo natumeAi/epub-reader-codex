@@ -35,9 +35,11 @@ export function LibraryHome({
     ? uploadProgress || '正在上传'
     : isSavingOrder
       ? '正在保存顺序'
-      : isLoading && hasLoadedShelf
-        ? '正在更新书架'
-        : '';
+      : isCatalogLoading
+        ? '正在加载搜索目录'
+        : isLoading && hasLoadedShelf
+          ? '正在更新书架'
+          : '';
 
   function handleSearchFocus() {
     if (!libraryView.searchMode) savedScrollTopRef.current = window.scrollY;

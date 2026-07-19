@@ -10,7 +10,7 @@ Approved in conversation on 2026-07-19 as part of the backlog remediation suite.
 
 ## Dependency
 
-本设计在 Shelf Loader Request Ownership 完成并合并后实施，避免两个批次同时修改 `useShelfData`。
+本设计在三个首波批次全部完成并合并后实施。它与 Shelf Loader Request Ownership 共用 `useShelfData`，与 Reader Close Progress Refresh 共用 `App.jsx`，并与 Bookshelf Acceptance Reliability 共用 `bookshelf.css`；串行执行可避免 subagent 工作树之间产生交叉合并冲突。
 
 ## Constraints
 

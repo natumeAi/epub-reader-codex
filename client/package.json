@@ -11,6 +11,7 @@
     "verify:reader-mobile": "node scripts/verify-reader-mobile.mjs",
     "verify:reader-page-turn": "node scripts/verify-reader-page-turn.mjs",
     "verify:reader-progress": "node scripts/verify-reader-progress.mjs",
+    "verify:bookshelf-home": "node scripts/verify-bookshelf-home.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

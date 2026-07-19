@@ -250,7 +250,8 @@ h1 {
 }
 
 .library-catalog-error,
-.library-shelf-error {
+.library-shelf-error,
+.library-operation-error {
   display: flex;
   min-width: 0;
   align-items: center;

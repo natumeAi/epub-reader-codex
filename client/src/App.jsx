@@ -30,7 +30,6 @@ function App() {
   const {
     catalogBooks,
     catalogError,
-    error,
     handleFileChange,
     hasLoadedCatalog,
     hasLoadedShelf,
@@ -41,11 +40,13 @@ function App() {
     loadCatalog,
     loadRecentReading,
     loadShelf,
+    operationError,
     recentReadingItems,
     replaceShelfFolder,
-    setError,
     setIsSavingOrder,
+    setOperationError,
     setShelfItems,
+    shelfError,
     shelfItems,
     uploadProgress,
   } = useShelfData({ restoreReaderBook });
@@ -89,7 +90,7 @@ function App() {
     loadShelf,
     openFolder,
     refreshOpenFolderBooksOrClose,
-    setError,
+    setError: setOperationError,
     setFolderError,
   });
   const {
@@ -112,7 +113,7 @@ function App() {
     loadShelf,
     onDropOnDelete: handleDropBookOnDelete,
     openFolder,
-    setError,
+    setError: setOperationError,
     setFolderBooks,
     setFolderError,
     setIsFolderLoading,
@@ -156,8 +157,9 @@ function App() {
         <LibraryHome
           catalogBooks={catalogBooks}
           catalogError={catalogError}
+          operationError={operationError}
+          shelfError={shelfError}
           dragIntent={dragIntent}
-          error={error}
           fileInputRef={fileInputRef}
           hasLoadedCatalog={hasLoadedCatalog}
           hasLoadedShelf={hasLoadedShelf}

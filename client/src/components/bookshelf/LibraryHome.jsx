@@ -9,7 +9,6 @@ export function LibraryHome({
   catalogBooks,
   catalogError,
   dragIntent,
-  error,
   fileInputRef,
   hasLoadedCatalog,
   hasLoadedShelf,
@@ -22,7 +21,9 @@ export function LibraryHome({
   onOpenFolder,
   onRetryCatalog,
   onRetryShelf,
+  operationError,
   recentReadingItems,
+  shelfError,
   shelfItems,
   uploadProgress,
 }) {
@@ -92,9 +93,9 @@ export function LibraryHome({
         />
       </div>
 
-      {error ? (
+      {shelfError ? (
         <div className="library-shelf-error" role="alert">
-          <span>{error}</span>
+          <span>{shelfError}</span>
           <button
             className="library-error-action"
             type="button"
@@ -102,6 +103,12 @@ export function LibraryHome({
           >
             重试加载书架
           </button>
+        </div>
+      ) : null}
+
+      {operationError ? (
+        <div className="library-operation-error" role="alert">
+          <span>{operationError}</span>
         </div>
       ) : null}
 

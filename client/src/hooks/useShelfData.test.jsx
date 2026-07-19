@@ -51,6 +51,24 @@ describe('useShelfData independent resources', () => {
     expect(result.current.isCatalogLoading).toBe(false);
   });
 
+  it('keeps shelf-load and operation errors independent', async () => {
+    api.listShelfItems.mockRejectedValueOnce(new Error('无法加载书架'));
+    const { result } = renderHook(() => useShelfData());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.shelfError).toBe('无法加载书架');
+    expect(result.current.operationError).toBe('');
+
+    act(() => result.current.setOperationError('上传失败'));
+    expect(result.current.shelfError).toBe('无法加载书架');
+    expect(result.current.operationError).toBe('上传失败');
+
+    api.listShelfItems.mockResolvedValueOnce({ items: [] });
+    await act(async () => { await result.current.loadShelf(); });
+    expect(result.current.shelfError).toBe('');
+    expect(result.current.operationError).toBe('上传失败');
+  });
+
   it('keeps the shelf and last catalog when a later catalog refresh fails', async () => {
     const { result } = renderHook(() => useShelfData());
     await waitFor(() => expect(result.current.catalogBooks).toHaveLength(1));
@@ -59,7 +77,7 @@ describe('useShelfData independent resources', () => {
     await act(async () => { await result.current.loadCatalog(); });
 
     expect(result.current.shelfItems).toHaveLength(1);
-    expect(result.current.error).toBe('');
+    expect(result.current.shelfError).toBe('');
     expect(result.current.catalogBooks).toHaveLength(1);
     expect(result.current.catalogError).toBe('搜索目录加载失败');
   });
@@ -134,7 +152,7 @@ describe('useShelfData independent resources', () => {
     });
 
     expect(result.current.shelfItems[0].book.title).toBe('新书架');
-    expect(result.current.error).toBe('');
+    expect(result.current.shelfError).toBe('');
     expect(restoreReaderBook).toHaveBeenCalledTimes(1);
     expect(restoreReaderBook.mock.calls[0][0].items[0].book.title).toBe('新书架');
   });

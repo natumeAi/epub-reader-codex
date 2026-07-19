@@ -13,7 +13,8 @@ export function useShelfData({ restoreReaderBook } = {}) {
   const [hasLoadedShelf, setHasLoadedShelf] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
-  const [error, setError] = useState('');
+  const [shelfError, setShelfError] = useState('');
+  const [operationError, setOperationError] = useState('');
   const [catalogBooks, setCatalogBooks] = useState([]);
   const [catalogError, setCatalogError] = useState('');
   const [hasLoadedCatalog, setHasLoadedCatalog] = useState(false);
@@ -66,7 +67,7 @@ export function useShelfData({ restoreReaderBook } = {}) {
   const loadShelf = useCallback(async () => {
     const requestVersion = ++shelfRequestVersionRef.current;
     setIsLoading(true);
-    setError('');
+    setShelfError('');
     const recentPromise = loadRecentReading();
     void loadCatalog();
 
@@ -83,12 +84,12 @@ export function useShelfData({ restoreReaderBook } = {}) {
         })
         .catch((err) => {
           if (shelfRequestVersionRef.current === requestVersion) {
-            setError(err.message || '无法加载书架');
+            setShelfError(err.message || '无法加载书架');
           }
         });
     } catch (err) {
       if (shelfRequestVersionRef.current === requestVersion) {
-        setError(err.message || '无法加载书架');
+        setShelfError(err.message || '无法加载书架');
       }
     } finally {
       if (shelfRequestVersionRef.current === requestVersion) {
@@ -102,7 +103,7 @@ export function useShelfData({ restoreReaderBook } = {}) {
     handleFileChange,
     isUploading,
     uploadProgress,
-  } = useUploadBooks({ loadShelf, setError });
+  } = useUploadBooks({ loadShelf, setError: setOperationError });
 
   useEffect(() => {
     loadShelf();
@@ -121,7 +122,6 @@ export function useShelfData({ restoreReaderBook } = {}) {
   return {
     catalogBooks,
     catalogError,
-    error,
     handleFileChange,
     hasLoadedCatalog,
     hasLoadedShelf,
@@ -132,11 +132,13 @@ export function useShelfData({ restoreReaderBook } = {}) {
     loadCatalog,
     loadRecentReading,
     loadShelf,
+    operationError,
     recentReadingItems,
     replaceShelfFolder,
-    setError,
     setIsSavingOrder,
+    setOperationError,
     setShelfItems,
+    shelfError,
     shelfItems,
     uploadProgress,
   };

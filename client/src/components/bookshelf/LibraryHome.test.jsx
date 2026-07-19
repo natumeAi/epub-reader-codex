@@ -22,7 +22,6 @@ function createHomeProps(overrides = {}) {
     catalogBooks,
     catalogError: '',
     dragIntent: null,
-    error: '',
     fileInputRef: createRef(),
     hasLoadedCatalog: true,
     hasLoadedShelf: true,
@@ -35,7 +34,9 @@ function createHomeProps(overrides = {}) {
     onOpenFolder: vi.fn(),
     onRetryCatalog: vi.fn(),
     onRetryShelf: vi.fn(),
+    operationError: '',
     recentReadingItems,
+    shelfError: '',
     shelfItems,
     uploadProgress: '',
     ...overrides,
@@ -119,10 +120,18 @@ describe('LibraryHome composition', () => {
 
   it('shows a shelf-specific retry without replacing search', () => {
     const onRetryShelf = vi.fn();
-    renderHome({ error: '无法加载书架', onRetryShelf, shelfItems: [] });
+    renderHome({ shelfError: '无法加载书架', onRetryShelf, shelfItems: [] });
     fireEvent.click(screen.getByRole('button', { name: '重试加载书架' }));
     expect(onRetryShelf).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('searchbox')).toBeInTheDocument();
+  });
+
+  it('shows operation errors without a shelf retry action', () => {
+    renderHome({ operationError: '上传失败' });
+    expect(screen.getByRole('alert')).toHaveTextContent('上传失败');
+    expect(screen.queryByRole('button', { name: '重试加载书架' }))
+      .not.toBeInTheDocument();
+    expect(screen.getByLabelText('可编辑书架列表')).toBeInTheDocument();
   });
 
   it('keeps one operation live region mounted while its status changes', () => {

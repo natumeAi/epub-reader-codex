@@ -175,6 +175,40 @@ async function setSearchAndMeasure(page, value) {
   }, value);
 }
 
+async function hasVisibleSearchFocus(page, searchbox) {
+  const control = page.locator('.library-search-control');
+  const before = await control.evaluate((element) => getComputedStyle(element).boxShadow);
+  await searchbox.focus();
+  const after = await control.evaluate((element) => getComputedStyle(element).boxShadow);
+  return before !== after && after !== 'none';
+}
+
+async function probeReadOnlyDrag(page) {
+  const item = page.locator('.read-only-shelf-item').first();
+  const box = await item.boundingBox();
+  if (!box) throw new Error('无法定位只读搜索结果');
+  await item.evaluate((element) => {
+    element.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture: true, once: true });
+  });
+
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 48, startY, { steps: 4 });
+  await page.waitForTimeout(150);
+  const activated = await page.evaluate(() => Boolean(
+    document.querySelector('.read-only-shelf-item.is-dragging') ||
+    document.querySelector('.drag-preview') ||
+    document.querySelector('.delete-drop-zone'),
+  ));
+  await page.mouse.up();
+  return activated;
+}
+
 if (process.env.APP_URL) {
   throw new Error('verify:bookshelf-home 只允许使用本地临时验证环境');
 }
@@ -212,6 +246,7 @@ try {
   requireNoErrors('430×932 布局不符合规格', inspectBookshelfLayout(mobile430), mobile430);
 
   const searchbox = page.getByRole('searchbox', { name: '搜索书名、作者或文件夹' });
+  const focusIndicatorVisible = await hasVisibleSearchFocus(page, searchbox);
   await searchbox.fill('书籍 1');
   await page.getByRole('button', { name: '书籍 1', exact: true }).click();
   const reader = page.locator('.reader-overlay');
@@ -234,15 +269,29 @@ try {
   await page.waitForLoadState('networkidle');
   countTypedRequests = true;
   const searchDurationMs = await setSearchAndMeasure(page, '作者 349');
+  await page.waitForTimeout(500);
+  await page.waitForLoadState('networkidle');
   countTypedRequests = false;
-  const searchSnapshot = await page.evaluate(({ durationMs, requestCount }) => ({
+  const readOnlyDragActivated = await probeReadOnlyDrag(page);
+  const searchSnapshot = await page.evaluate(({
+    durationMs,
+    dragActivated,
+    focusVisible,
+    requestCount,
+  }) => ({
     durationMs,
     typedRequestCount: requestCount,
     folderContextVisible: Array.from(document.querySelectorAll('.shelf-item-context'))
       .some((element) => element.textContent?.includes('历史')),
     readOnlyItemCount: document.querySelectorAll('.read-only-shelf-item').length,
-    dragHandleCount: document.querySelectorAll('.shelf-grid [aria-describedby]').length,
-  }), { durationMs: searchDurationMs, requestCount: typedRequestCount });
+    focusIndicatorVisible: focusVisible,
+    readOnlyDragActivated: dragActivated,
+  }), {
+    durationMs: searchDurationMs,
+    dragActivated: readOnlyDragActivated,
+    focusVisible: focusIndicatorVisible,
+    requestCount: typedRequestCount,
+  });
   requireNoErrors(
     '350 本本地搜索不符合规格',
     inspectBookshelfSearch(searchSnapshot),
@@ -291,7 +340,8 @@ try {
     typedRequestCount: searchSnapshot.typedRequestCount,
     folderContextVisible: searchSnapshot.folderContextVisible,
     readOnlyItemCount: searchSnapshot.readOnlyItemCount,
-    dragHandleCount: searchSnapshot.dragHandleCount,
+    focusIndicatorVisible: searchSnapshot.focusIndicatorVisible,
+    readOnlyDragActivated: searchSnapshot.readOnlyDragActivated,
     entryRegression: {
       readerQueryPreserved,
       folderQueryPreserved,

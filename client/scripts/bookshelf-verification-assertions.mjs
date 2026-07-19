@@ -19,7 +19,7 @@ export function inspectBookshelfLayout(snapshot) {
   }
 
   if (viewport.width === 430 && viewport.height === 932) {
-    const firstRowFits = firstShelfRow.length > 0 && firstShelfRow.every(
+    const firstRowFits = firstShelfRow.length >= 3 && firstShelfRow.every(
       (item) => item.top >= 0 && item.bottom <= viewport.height + LAYOUT_EPSILON,
     );
     if (
@@ -84,8 +84,11 @@ export function inspectBookshelfSearch(snapshot) {
   if (snapshot.readOnlyItemCount < 1) {
     errors.push('搜索结果未使用只读卡片');
   }
-  if (snapshot.dragHandleCount !== 0) {
-    errors.push('搜索结果仍包含拖动句柄');
+  if (!snapshot.focusIndicatorVisible) {
+    errors.push('搜索框缺少可见键盘焦点');
+  }
+  if (snapshot.readOnlyDragActivated) {
+    errors.push('搜索结果仍可触发拖动');
   }
 
   return errors;

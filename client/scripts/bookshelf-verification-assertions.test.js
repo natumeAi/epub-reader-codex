@@ -49,7 +49,39 @@ describe('bookshelf home acceptance assertions', () => {
       typedRequestCount: 0,
       folderContextVisible: true,
       readOnlyItemCount: 1,
-      dragHandleCount: 0,
+      focusIndicatorVisible: true,
+      readOnlyDragActivated: false,
     })).toEqual([]);
+  });
+
+  it('rejects a 430px first screen with fewer than three shelf items', () => {
+    expect(inspectBookshelfLayout({
+      viewport: { width: 430, height: 932 },
+      app: { left: 0, right: 430, width: 430 },
+      documentScrollWidth: 430,
+      search: { top: 80, bottom: 128 },
+      continueSection: { top: 144, bottom: 292 },
+      firstShelfRow: [{ top: 470, bottom: 679 }],
+      continueViewport: { left: 18, right: 412 },
+      continueCards: [
+        { left: 18, right: 310 },
+        { left: 322, right: 614 },
+      ],
+      touchTargets: [{ width: 48, height: 48 }],
+    })).toContain('430×932 首屏未完整显示搜索、继续阅读和一整排书架');
+  });
+
+  it('rejects an invisible search focus or activated read-only drag', () => {
+    expect(inspectBookshelfSearch({
+      durationMs: 72,
+      typedRequestCount: 0,
+      folderContextVisible: true,
+      readOnlyItemCount: 1,
+      focusIndicatorVisible: false,
+      readOnlyDragActivated: true,
+    })).toEqual(expect.arrayContaining([
+      '搜索框缺少可见键盘焦点',
+      '搜索结果仍可触发拖动',
+    ]));
   });
 });

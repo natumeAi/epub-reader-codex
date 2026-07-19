@@ -5,6 +5,7 @@ export function BookCover({ book }) {
         className="book-cover-image"
         src={book.coverUrl}
         alt={book.title || '书籍封面'}
+        decoding="async"
         loading="lazy"
       />
     );

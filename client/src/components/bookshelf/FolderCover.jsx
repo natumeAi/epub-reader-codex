@@ -7,7 +7,7 @@ export function FolderCover({ folder }) {
         {previewBooks.map((previewBook, index) => (
           <span className="folder-preview-slot" key={previewBook.id ?? index}>
             {previewBook.coverUrl ? (
-              <img className="folder-preview-image" src={previewBook.coverUrl} alt="" loading="lazy" />
+              <img className="folder-preview-image" src={previewBook.coverUrl} alt="" decoding="async" loading="lazy" />
             ) : (
               <span className="folder-preview-image folder-preview-image-empty" />
             )}

@@ -20,6 +20,7 @@ export function useEpubRendition({
   isLoading,
   loadReaderSettings,
   markReaderSettingsLoaded,
+  onBookUnavailable,
   readerSettingsRef,
   renditionRef,
   resetPageProgress,
@@ -58,7 +59,11 @@ export function useEpubRendition({
 
       try {
         const fileResponse = await fetch(`/api/books/${book.id}/file`);
-        if (!fileResponse.ok) throw new Error(`文件加载失败 (${fileResponse.status})`);
+        if (!fileResponse.ok) {
+          const fileError = new Error(`文件加载失败 (${fileResponse.status})`);
+          if (fileResponse.status === 404) fileError.code = 'BOOK_NOT_FOUND';
+          throw fileError;
+        }
         if (destroyed) return;
 
         const arrayBuffer = await fileResponse.arrayBuffer();
@@ -177,9 +182,14 @@ export function useEpubRendition({
         }).catch(() => {
           locationsReady = false;
         });
-      } catch {
+      } catch (openError) {
         if (!destroyed) {
-          setError('无法打开这本书');
+          if (openError.code === 'BOOK_NOT_FOUND') {
+            setError('书籍不存在');
+            onBookUnavailable?.(book.id);
+          } else {
+            setError('无法打开这本书');
+          }
           setIsLoading(false);
         }
         rendition?.destroy();
@@ -216,6 +226,7 @@ export function useEpubRendition({
     flushPendingReaderSettings,
     loadReaderSettings,
     markReaderSettingsLoaded,
+    onBookUnavailable,
     readerReloadKey,
     readerSettingsRef,
     renditionRef,

@@ -114,12 +114,20 @@ describe('ReaderView behavior', () => {
   });
 
   it('composes the outbox hook and requests keepalive when closing', () => {
-    render(<ReaderView book={{ id: 12, title: '测试书' }} onClose={vi.fn()} />);
+    const onBookUnavailable = vi.fn();
+    render(
+      <ReaderView
+        book={{ id: 12, title: '测试书' }}
+        onBookUnavailable={onBookUnavailable}
+        onClose={vi.fn()}
+      />,
+    );
 
     expect(mocks.useReadingProgressPersistence).toHaveBeenCalledWith({ bookId: 12 });
     expect(mocks.useEpubRendition).toHaveBeenCalledWith(expect.objectContaining({
       enqueueProgress: mocks.enqueueProgress,
       flushPendingReaderSettings: mocks.flushPendingReaderSettings,
+      onBookUnavailable,
     }));
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));

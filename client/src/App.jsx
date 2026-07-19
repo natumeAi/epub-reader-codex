@@ -132,6 +132,10 @@ function App() {
     void Promise.all([loadRecentReading(), loadCatalog()]);
   }
 
+  const handleBookUnavailable = useCallback(() => {
+    void loadShelf();
+  }, [loadShelf]);
+
   function handleOpenFolder(folder) {
     openFolderFromShelf(folder, {
       ignoreUntil: getFolderOpenIgnoreUntil(),
@@ -193,6 +197,7 @@ function App() {
             <ReaderView
               book={readingBook}
               originRect={readingBookOrigin}
+              onBookUnavailable={handleBookUnavailable}
               onClose={handleCloseReader}
             />
           </Suspense>

@@ -167,4 +167,18 @@ describe('useEpubRendition progress', () => {
     unmount();
     expect(mocks.adapter.destroy).toHaveBeenCalledTimes(1);
   });
+
+  it('reports a missing book and notifies the library once for a file 404', async () => {
+    const fixture = createRenditionFixture();
+    const onBookUnavailable = vi.fn();
+    fixture.args.onBookUnavailable = onBookUnavailable;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+
+    renderHook(() => useEpubRendition(fixture.args));
+
+    await waitFor(() => expect(fixture.args.setError).toHaveBeenCalledWith('书籍不存在'));
+    expect(onBookUnavailable).toHaveBeenCalledTimes(1);
+    expect(onBookUnavailable).toHaveBeenCalledWith(5);
+    expect(fixture.args.setIsLoading).toHaveBeenCalledWith(false);
+  });
 });

@@ -35,7 +35,7 @@ function rectToTransformString(rect) {
   return `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / vw}, ${rect.height / vh})`;
 }
 
-export function ReaderView({ book, originRect, onClose }) {
+export function ReaderView({ book, originRect, onBookUnavailable, onClose }) {
   const reducedMotion = useReducedMotion();
   const containerRef = useRef(null);
   const bookRef = useRef(null);
@@ -133,6 +133,7 @@ export function ReaderView({ book, originRect, onClose }) {
     isLoading,
     loadReaderSettings,
     markReaderSettingsLoaded,
+    onBookUnavailable,
     readerSettingsRef,
     renditionRef,
     resetPageProgress,

@@ -53,4 +53,18 @@ describe('LibraryViewToolbar', () => {
     expect(screen.getByText('只读视图，不会改变手动书架顺序')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('文件夹，2 项，只读视图');
   });
+
+  it('keeps all enabled while other controls are disabled', () => {
+    render(
+      <LibraryViewToolbar
+        {...baseProps}
+        controlsDisabled
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '全部' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '最近添加' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '文件夹' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '排序方式' })).toBeDisabled();
+  });
 });

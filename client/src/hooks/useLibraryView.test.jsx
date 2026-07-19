@@ -74,6 +74,31 @@ describe('useLibraryView', () => {
     expect(result.current.sortOptions).toEqual([]);
   });
 
+  it('uses title ordering when search is focused from manual or folders', () => {
+    const { result } = renderHook(() => useLibraryView({ shelfItems, catalogBooks }));
+
+    act(() => result.current.focusSearch());
+    expect(result.current.sort).toBe(LIBRARY_SORT.TITLE);
+
+    act(() => result.current.cancelSearch());
+    act(() => result.current.selectView(LIBRARY_VIEW.FOLDERS));
+    act(() => result.current.focusSearch());
+    expect(result.current.sort).toBe(LIBRARY_SORT.TITLE);
+  });
+
+  it('returns a non-all view to the editable manual shelf', () => {
+    const { result } = renderHook(() => useLibraryView({ shelfItems, catalogBooks }));
+
+    act(() => result.current.selectView(LIBRARY_VIEW.RECENT_ADDED));
+    act(() => result.current.selectView(LIBRARY_VIEW.ALL));
+
+    expect(result.current).toMatchObject({
+      view: LIBRARY_VIEW.ALL,
+      sort: LIBRARY_SORT.MANUAL,
+      editable: true,
+    });
+  });
+
   it('ignores unsupported sort values', () => {
     const { result } = renderHook(() => useLibraryView({ shelfItems, catalogBooks }));
     act(() => result.current.selectSort('unsupported'));

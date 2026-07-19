@@ -30,7 +30,9 @@ describe('LibraryGrid', () => {
       <LibraryGrid editable={false} items={[bookItem]} hasLoadedShelf isLoading={false} />,
     );
     expect(screen.queryByTestId('sortable-context')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '万历十五年，位于“历史”' })).toBeInTheDocument();
+    const readOnlyBook = screen.getByRole('button', { name: '万历十五年，位于“历史”' });
+    expect(readOnlyBook).toBeInTheDocument();
+    expect(readOnlyBook).toHaveTextContent('位于“历史”');
   });
 
   it('opens read-only books and folders without drag props', () => {

@@ -28,6 +28,9 @@ export function ReadOnlyShelfItem({ item, onOpenBook, onOpenFolder }) {
     >
       <ShelfItemCover item={item} />
       <span className="shelf-item-label">{name}</span>
+      {item.type === 'book' && item.folderName ? (
+        <span className="shelf-item-context">位于“{item.folderName}”</span>
+      ) : null}
     </button>
   );
 }

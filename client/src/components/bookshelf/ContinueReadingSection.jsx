@@ -1,7 +1,18 @@
+import { useId } from 'react';
 import { BookCover } from './BookCover.jsx';
 
+const sqliteUtcTimestampPattern = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+
+export function normalizeRecentReadingTimestamp(updatedAt) {
+  const value = String(updatedAt ?? '');
+  return sqliteUtcTimestampPattern.test(value)
+    ? `${value.replace(' ', 'T')}Z`
+    : value;
+}
+
 export function formatRecentReadingTime(updatedAt, now = Date.now()) {
-  const timestamp = Date.parse(updatedAt || '');
+  const normalizedUpdatedAt = normalizeRecentReadingTimestamp(updatedAt);
+  const timestamp = Date.parse(normalizedUpdatedAt);
   if (!Number.isFinite(timestamp)) return '最近阅读';
   const elapsedMinutes = Math.max(0, Math.floor((now - timestamp) / 60000));
   if (elapsedMinutes < 60) return `${Math.max(1, elapsedMinutes)} 分钟前`;
@@ -16,6 +27,8 @@ export function formatRecentReadingTime(updatedAt, now = Date.now()) {
 }
 
 export function ContinueReadingSection({ items, onOpenBook, searchMode }) {
+  const descriptionIdPrefix = useId();
+
   if (searchMode || !items.length) {
     return null;
   }
@@ -28,6 +41,8 @@ export function ContinueReadingSection({ items, onOpenBook, searchMode }) {
       <div className="continue-reading-list">
         {items.map((item) => {
           const book = item.book;
+          const metaId = `${descriptionIdPrefix}-book-${book.id}-meta`;
+          const normalizedUpdatedAt = normalizeRecentReadingTimestamp(item.progress?.updatedAt);
           const rawProgressValue = item.progress?.progress;
           const progressValue = Number(rawProgressValue);
           const hasProgressValue = rawProgressValue != null && Number.isFinite(progressValue);
@@ -45,6 +60,7 @@ export function ContinueReadingSection({ items, onOpenBook, searchMode }) {
                 const rect = event.currentTarget.querySelector('.book-cover')?.getBoundingClientRect();
                 onOpenBook(book, rect || null);
               }}
+              aria-describedby={metaId}
               aria-label={`继续阅读《${book.title || '未命名书籍'}》`}
             >
               <span className="book-cover continue-book-cover">
@@ -52,10 +68,10 @@ export function ContinueReadingSection({ items, onOpenBook, searchMode }) {
               </span>
               <span className="continue-card-content">
                 <span className="continue-book-title">{book.title || '未命名书籍'}</span>
-                <span className="continue-book-meta">
+                <span className="continue-book-meta" id={metaId}>
                   {progressPercent !== null ? <span>{progressPercent}%</span> : null}
-                  <time dateTime={item.progress?.updatedAt || undefined}>
-                    {formatRecentReadingTime(item.progress?.updatedAt)}
+                  <time dateTime={normalizedUpdatedAt || undefined}>
+                    {formatRecentReadingTime(normalizedUpdatedAt)}
                   </time>
                 </span>
                 {progressPercent !== null ? (

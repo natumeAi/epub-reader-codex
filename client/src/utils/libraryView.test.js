@@ -17,7 +17,6 @@ const shelfItems = [
       title: '活着',
       author: '余华',
       createdAt: '2026-01-01T00:00:00.000Z',
-      readingUpdatedAt: '2026-01-02T00:00:00.000Z',
     },
   },
   {
@@ -29,7 +28,7 @@ const catalogBooks = [
   {
     id: 1, folderId: null, folderName: null, title: '活着', author: '余华',
     createdAt: '2026-01-01T00:00:00.000Z',
-    readingUpdatedAt: '2026-01-02T00:00:00.000Z',
+    readingUpdatedAt: '2026-04-02T00:00:00.000Z',
   },
   {
     id: 7, folderId: 3, folderName: '历史', title: '万历十五年', author: '黄仁宇',
@@ -92,7 +91,7 @@ describe('sortLibraryItems', () => {
     })).toBe(shelfItems);
   });
 
-  it('uses the latest nested book for folder date sorts', () => {
+  it('uses catalog timestamps for root books and folder date sorts', () => {
     expect(deriveVisibleLibraryItems({
       shelfItems, catalogBooks, query: '', view: LIBRARY_VIEW.ALL,
       sort: LIBRARY_SORT.RECENT_ADDED,
@@ -101,7 +100,7 @@ describe('sortLibraryItems', () => {
     expect(deriveVisibleLibraryItems({
       shelfItems, catalogBooks, query: '', view: LIBRARY_VIEW.ALL,
       sort: LIBRARY_SORT.RECENT_READING,
-    }).map((item) => item.key)).toEqual(['folder:3', 'book:1']);
+    }).map((item) => item.key)).toEqual(['book:1', 'folder:3']);
   });
 
   it('groups authored books before empty authors and folders', () => {

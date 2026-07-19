@@ -115,16 +115,17 @@ function compareNullableDescending(first, second) {
   return second - first;
 }
 
-function itemTimestamp(item, sort, folderStats) {
+function itemTimestamp(item, sort, folderStats, catalogBooksById) {
   if (item.type === 'folder') {
     const stats = folderStats.get(item.id);
     return sort === LIBRARY_SORT.RECENT_ADDED
       ? stats?.latestAdded ?? null
       : stats?.latestRead ?? null;
   }
+  const book = catalogBooksById.get(item.id) || item.book;
   return parseTimestamp(sort === LIBRARY_SORT.RECENT_ADDED
-    ? item.book?.createdAt
-    : item.book?.readingUpdatedAt);
+    ? book?.createdAt
+    : book?.readingUpdatedAt);
 }
 
 function authorGroup(item) {
@@ -139,6 +140,7 @@ export function sortLibraryItems(
   if (sort === LIBRARY_SORT.MANUAL) return items;
 
   const folderStats = buildFolderStats(catalogBooks);
+  const catalogBooksById = new Map(catalogBooks.map((book) => [book.id, book]));
   return items
     .map((item, index) => ({ item, index }))
     .sort((firstEntry, secondEntry) => {
@@ -148,8 +150,8 @@ export function sortLibraryItems(
 
       if (sort === LIBRARY_SORT.RECENT_ADDED || sort === LIBRARY_SORT.RECENT_READING) {
         result = compareNullableDescending(
-          itemTimestamp(first, sort, folderStats),
-          itemTimestamp(second, sort, folderStats),
+          itemTimestamp(first, sort, folderStats, catalogBooksById),
+          itemTimestamp(second, sort, folderStats, catalogBooksById),
         );
       } else if (sort === LIBRARY_SORT.AUTHOR) {
         result = authorGroup(first) - authorGroup(second);

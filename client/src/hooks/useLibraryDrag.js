@@ -638,6 +638,7 @@ export function useLibraryDrag({
         );
         clearFolderBookShelfDrag();
         setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
+        await loadShelf();
       } catch (err) {
         const previousShelfItems = dragState.previousShelfItems;
         const previousFolderBooks = dragState.previousFolderBooks;
@@ -655,6 +656,7 @@ export function useLibraryDrag({
     [
       clearDragIntent,
       clearFolderBookShelfDrag,
+      loadShelf,
       setError,
       setFolderBooks,
       setFolderError,
@@ -694,6 +696,7 @@ export function useLibraryDrag({
         try {
           const data = await createFolderFromBooks(activeItem.id, targetItem.id);
           setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
+          await loadShelf();
         } catch (err) {
           setShelfItems(previousShelfItems);
           setError(err.message || '无法创建文件夹');
@@ -717,6 +720,7 @@ export function useLibraryDrag({
         try {
           const data = await moveShelfBookToFolder(targetItem.id, activeItem.id);
           setShelfItems((data.shelfItems || []).map(normalizeShelfItem));
+          await loadShelf();
         } catch (err) {
           setShelfItems(previousShelfItems);
           setError(err.message || '无法移入文件夹');
@@ -755,7 +759,15 @@ export function useLibraryDrag({
         setIsSavingOrder(false);
       }
     },
-    [clearDragIntent, isSavingOrder, setError, setIsSavingOrder, setShelfItems, shelfItems],
+    [
+      clearDragIntent,
+      isSavingOrder,
+      loadShelf,
+      setError,
+      setIsSavingOrder,
+      setShelfItems,
+      shelfItems,
+    ],
   );
 
   const handleFolderDragEnd = useCallback(

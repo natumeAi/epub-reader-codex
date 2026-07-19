@@ -19,6 +19,12 @@ vi.mock('./useUploadBooks.js', () => ({
   }),
 }));
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
+}
+
 describe('useShelfData independent resources', () => {
   beforeEach(() => {
     api.listShelfItems.mockResolvedValue({
@@ -52,5 +58,19 @@ describe('useShelfData independent resources', () => {
     expect(result.current.error).toBe('');
     expect(result.current.catalogBooks).toHaveLength(1);
     expect(result.current.catalogError).toBe('搜索目录加载失败');
+  });
+
+  it('finishes the primary shelf while auxiliary requests are still pending', async () => {
+    const recentRequest = deferred();
+    const catalogRequest = deferred();
+    api.listRecentReading.mockReturnValueOnce(recentRequest.promise);
+    api.listBookCatalog.mockReturnValueOnce(catalogRequest.promise);
+
+    const { result } = renderHook(() => useShelfData());
+    await waitFor(() => expect(result.current.shelfItems).toHaveLength(1));
+
+    expect(result.current.hasLoadedShelf).toBe(true);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.isCatalogLoading).toBe(true);
   });
 });

@@ -52,17 +52,17 @@ export function useShelfData({ restoreReaderBook } = {}) {
     setIsLoading(true);
     setError('');
     const recentPromise = loadRecentReading();
-    const catalogPromise = loadCatalog();
+    void loadCatalog();
 
     try {
       const shelfData = await listShelfItems();
       setShelfItems((shelfData.items || []).map(normalizeShelfItem));
-      const recentData = await recentPromise;
-      await restoreReaderBook?.(shelfData, recentData);
+      void recentPromise
+        .then((recentData) => restoreReaderBook?.(shelfData, recentData))
+        .catch((err) => setError(err.message || '无法加载书架'));
     } catch (err) {
       setError(err.message || '无法加载书架');
     } finally {
-      await Promise.allSettled([recentPromise, catalogPromise]);
       setHasLoadedShelf(true);
       setIsLoading(false);
     }

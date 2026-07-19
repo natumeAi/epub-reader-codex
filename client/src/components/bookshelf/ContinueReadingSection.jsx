@@ -1,7 +1,22 @@
 import { BookCover } from './BookCover.jsx';
 
-export function ContinueReadingSection({ items, onOpenBook }) {
-  if (!items.length) {
+export function formatRecentReadingTime(updatedAt, now = Date.now()) {
+  const timestamp = Date.parse(updatedAt || '');
+  if (!Number.isFinite(timestamp)) return '最近阅读';
+  const elapsedMinutes = Math.max(0, Math.floor((now - timestamp) / 60000));
+  if (elapsedMinutes < 60) return `${Math.max(1, elapsedMinutes)} 分钟前`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours} 小时前`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 7) return `${elapsedDays} 天前`;
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(timestamp));
+}
+
+export function ContinueReadingSection({ items, onOpenBook, searchMode }) {
+  if (searchMode || !items.length) {
     return null;
   }
 
@@ -13,8 +28,9 @@ export function ContinueReadingSection({ items, onOpenBook }) {
       <div className="continue-reading-list">
         {items.map((item) => {
           const book = item.book;
-          const progressValue = Number(item.progress?.progress);
-          const hasProgressValue = Number.isFinite(progressValue);
+          const rawProgressValue = item.progress?.progress;
+          const progressValue = Number(rawProgressValue);
+          const hasProgressValue = rawProgressValue != null && Number.isFinite(progressValue);
           const progressPercent = hasProgressValue
             ? Math.max(0, Math.min(100, Math.round(progressValue * 100)))
             : null;
@@ -34,10 +50,20 @@ export function ContinueReadingSection({ items, onOpenBook }) {
               <span className="book-cover continue-book-cover">
                 <BookCover book={book} />
               </span>
-              <span className="continue-book-title">{book.title || '未命名书籍'}</span>
-              {progressPercent !== null ? (
-                <span className="continue-book-progress">{progressPercent}%</span>
-              ) : null}
+              <span className="continue-card-content">
+                <span className="continue-book-title">{book.title || '未命名书籍'}</span>
+                <span className="continue-book-meta">
+                  {progressPercent !== null ? <span>{progressPercent}%</span> : null}
+                  <time dateTime={item.progress?.updatedAt || undefined}>
+                    {formatRecentReadingTime(item.progress?.updatedAt)}
+                  </time>
+                </span>
+                {progressPercent !== null ? (
+                  <span className="continue-progress-track" aria-hidden="true">
+                    <span style={{ width: `${progressPercent}%` }} />
+                  </span>
+                ) : null}
+              </span>
             </button>
           );
         })}

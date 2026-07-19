@@ -21,8 +21,12 @@ vi.mock('./useUploadBooks.js', () => ({
 
 function deferred() {
   let resolve;
-  const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 describe('useShelfData independent resources', () => {
@@ -72,5 +76,92 @@ describe('useShelfData independent resources', () => {
     expect(result.current.hasLoadedShelf).toBe(true);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.isCatalogLoading).toBe(true);
+  });
+
+  it('lets only the latest catalog request commit data and loading state', async () => {
+    const { result } = renderHook(() => useShelfData());
+    await waitFor(() => expect(result.current.catalogBooks).toHaveLength(1));
+    const older = deferred();
+    const newer = deferred();
+    api.listBookCatalog
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+
+    let olderLoad;
+    let newerLoad;
+    act(() => { olderLoad = result.current.loadCatalog(); });
+    act(() => { newerLoad = result.current.loadCatalog(); });
+
+    await act(async () => {
+      older.resolve({ books: [{ id: 2, title: '旧目录' }] });
+      await olderLoad;
+    });
+    expect(result.current.isCatalogLoading).toBe(true);
+    expect(result.current.catalogBooks[0].title).toBe('根层书');
+
+    await act(async () => {
+      newer.resolve({ books: [{ id: 3, title: '新目录' }] });
+      await newerLoad;
+    });
+    expect(result.current.isCatalogLoading).toBe(false);
+    expect(result.current.catalogBooks[0].title).toBe('新目录');
+  });
+
+  it('ignores an older shelf result and restores only the latest shelf', async () => {
+    const restoreReaderBook = vi.fn();
+    const { result } = renderHook(() => useShelfData({ restoreReaderBook }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() => expect(restoreReaderBook).toHaveBeenCalledTimes(1));
+    restoreReaderBook.mockClear();
+    const older = deferred();
+    const newer = deferred();
+    api.listShelfItems
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+
+    let olderLoad;
+    let newerLoad;
+    act(() => { olderLoad = result.current.loadShelf(); });
+    act(() => { newerLoad = result.current.loadShelf(); });
+
+    await act(async () => {
+      newer.resolve({ items: [{ type: 'book', id: 3, book: { id: 3, title: '新书架' } }] });
+      await newerLoad;
+    });
+    await act(async () => {
+      older.resolve({ items: [{ type: 'book', id: 2, book: { id: 2, title: '旧书架' } }] });
+      await olderLoad;
+    });
+
+    expect(result.current.shelfItems[0].book.title).toBe('新书架');
+    expect(result.current.error).toBe('');
+    expect(restoreReaderBook).toHaveBeenCalledTimes(1);
+    expect(restoreReaderBook.mock.calls[0][0].items[0].book.title).toBe('新书架');
+  });
+
+  it('lets only the latest recent-reading request commit items', async () => {
+    const { result } = renderHook(() => useShelfData());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const older = deferred();
+    const newer = deferred();
+    api.listRecentReading
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+
+    let olderLoad;
+    let newerLoad;
+    act(() => { olderLoad = result.current.loadRecentReading(); });
+    act(() => { newerLoad = result.current.loadRecentReading(); });
+
+    await act(async () => {
+      newer.resolve({ items: [{ book: { id: 3, title: '新进度' } }] });
+      await newerLoad;
+    });
+    await act(async () => {
+      older.resolve({ items: [{ book: { id: 2, title: '旧进度' } }] });
+      await olderLoad;
+    });
+
+    expect(result.current.recentReadingItems[0].book.title).toBe('新进度');
   });
 });

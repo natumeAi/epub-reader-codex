@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listBookCatalog } from '../api/booksApi.js';
 import {
   listShelfItems,
@@ -18,37 +18,53 @@ export function useShelfData({ restoreReaderBook } = {}) {
   const [catalogError, setCatalogError] = useState('');
   const [hasLoadedCatalog, setHasLoadedCatalog] = useState(false);
   const [isCatalogLoading, setIsCatalogLoading] = useState(true);
+  const shelfRequestVersionRef = useRef(0);
+  const catalogRequestVersionRef = useRef(0);
+  const recentRequestVersionRef = useRef(0);
 
   const loadRecentReading = useCallback(async () => {
+    const requestVersion = ++recentRequestVersionRef.current;
     try {
       const data = await listRecentReading();
       const items = data.items || [];
-      setRecentReadingItems(items);
+      if (recentRequestVersionRef.current === requestVersion) {
+        setRecentReadingItems(items);
+      }
       return { items };
     } catch {
-      setRecentReadingItems([]);
+      if (recentRequestVersionRef.current === requestVersion) {
+        setRecentReadingItems([]);
+      }
       return { items: [] };
     }
   }, []);
 
   const loadCatalog = useCallback(async () => {
+    const requestVersion = ++catalogRequestVersionRef.current;
     setIsCatalogLoading(true);
     setCatalogError('');
 
     try {
       const data = await listBookCatalog();
-      setCatalogBooks(data.books || []);
+      if (catalogRequestVersionRef.current === requestVersion) {
+        setCatalogBooks(data.books || []);
+      }
       return data;
     } catch (err) {
-      setCatalogError(err.message || '搜索目录加载失败');
+      if (catalogRequestVersionRef.current === requestVersion) {
+        setCatalogError(err.message || '搜索目录加载失败');
+      }
       return null;
     } finally {
-      setHasLoadedCatalog(true);
-      setIsCatalogLoading(false);
+      if (catalogRequestVersionRef.current === requestVersion) {
+        setHasLoadedCatalog(true);
+        setIsCatalogLoading(false);
+      }
     }
   }, []);
 
   const loadShelf = useCallback(async () => {
+    const requestVersion = ++shelfRequestVersionRef.current;
     setIsLoading(true);
     setError('');
     const recentPromise = loadRecentReading();
@@ -56,15 +72,29 @@ export function useShelfData({ restoreReaderBook } = {}) {
 
     try {
       const shelfData = await listShelfItems();
-      setShelfItems((shelfData.items || []).map(normalizeShelfItem));
+      if (shelfRequestVersionRef.current === requestVersion) {
+        setShelfItems((shelfData.items || []).map(normalizeShelfItem));
+      }
       void recentPromise
-        .then((recentData) => restoreReaderBook?.(shelfData, recentData))
-        .catch((err) => setError(err.message || '无法加载书架'));
+        .then((recentData) => {
+          if (shelfRequestVersionRef.current === requestVersion) {
+            restoreReaderBook?.(shelfData, recentData);
+          }
+        })
+        .catch((err) => {
+          if (shelfRequestVersionRef.current === requestVersion) {
+            setError(err.message || '无法加载书架');
+          }
+        });
     } catch (err) {
-      setError(err.message || '无法加载书架');
+      if (shelfRequestVersionRef.current === requestVersion) {
+        setError(err.message || '无法加载书架');
+      }
     } finally {
-      setHasLoadedShelf(true);
-      setIsLoading(false);
+      if (shelfRequestVersionRef.current === requestVersion) {
+        setHasLoadedShelf(true);
+        setIsLoading(false);
+      }
     }
   }, [loadCatalog, loadRecentReading, restoreReaderBook]);
 

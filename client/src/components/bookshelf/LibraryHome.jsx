@@ -1,22 +1,55 @@
-import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable';
+import { useRef } from 'react';
+import { useLibraryView } from '../../hooks/useLibraryView.js';
 import { ContinueReadingSection } from './ContinueReadingSection.jsx';
-import { SortableShelfItem } from './SortableShelfItem.jsx';
+import { LibraryGrid } from './LibraryGrid.jsx';
+import { LibrarySearchBar } from './LibrarySearchBar.jsx';
+import { LibraryViewToolbar } from './LibraryViewToolbar.jsx';
 
 export function LibraryHome({
+  catalogBooks,
+  catalogError,
   dragIntent,
   error,
   fileInputRef,
+  hasLoadedCatalog,
   hasLoadedShelf,
+  isCatalogLoading,
   isLoading,
   isSavingOrder,
   isUploading,
   onFileChange,
   onOpenBook,
   onOpenFolder,
+  onRetryCatalog,
+  onRetryShelf,
   recentReadingItems,
   shelfItems,
   uploadProgress,
 }) {
+  const libraryView = useLibraryView({ shelfItems, catalogBooks });
+  const savedScrollTopRef = useRef(0);
+  const catalogControlsDisabled =
+    isCatalogLoading || Boolean(catalogError) || !hasLoadedCatalog;
+  const operationStatus = isUploading
+    ? uploadProgress || '正在上传'
+    : isSavingOrder
+      ? '正在保存顺序'
+      : isLoading && hasLoadedShelf
+        ? '正在更新书架'
+        : '';
+
+  function handleSearchFocus() {
+    if (!libraryView.searchMode) savedScrollTopRef.current = window.scrollY;
+    libraryView.focusSearch();
+  }
+
+  function restoreSearch(action) {
+    action();
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: savedScrollTopRef.current, behavior: 'auto' });
+    });
+  }
+
   return (
     <section className="library-home">
       <div className="library-header">
@@ -44,55 +77,74 @@ export function LibraryHome({
         />
       </div>
 
-      {error ? (
-        <p className="status-message error-message" role="alert">
-          {error}
-        </p>
-      ) : null}
-
-      {isUploading || isSavingOrder || (isLoading && hasLoadedShelf) ? (
-        <p className="status-message" role="status">
-          {isUploading ? uploadProgress || '正在上传' : isSavingOrder ? '正在保存顺序' : '正在更新书架'}
-        </p>
-      ) : null}
-
-      {!isLoading ? (
-        <ContinueReadingSection
-          items={recentReadingItems}
-          onOpenBook={onOpenBook}
+      <div className="library-search-shell">
+        <LibrarySearchBar
+          bookCount={catalogBooks.length}
+          catalogError={catalogError}
+          isCatalogLoading={isCatalogLoading}
+          query={libraryView.query}
+          searchMode={libraryView.searchMode}
+          onCancel={() => restoreSearch(libraryView.cancelSearch)}
+          onClear={() => restoreSearch(libraryView.clearSearch)}
+          onFocus={handleSearchFocus}
+          onQueryChange={libraryView.changeQuery}
+          onRetry={onRetryCatalog}
         />
+      </div>
+
+      {error ? (
+        <div className="library-shelf-error" role="alert">
+          <span>{error}</span>
+          <button
+            className="library-error-action"
+            type="button"
+            onClick={onRetryShelf}
+          >
+            重试加载书架
+          </button>
+        </div>
       ) : null}
 
-      {isLoading && !hasLoadedShelf ? (
-        <div className="shelf-grid" aria-label="书架加载中">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <div className="book-shell" key={index}>
-              <div className="book-cover skeleton-cover" />
-              <div className="shelf-item-label skeleton-label" />
-            </div>
-          ))}
-        </div>
-      ) : shelfItems.length ? (
-        <SortableContext items={shelfItems.map((item) => item.key)} strategy={rectSortingStrategy}>
-          <div className="shelf-grid" aria-label="书架列表">
-            {shelfItems.map((item) => (
-              <SortableShelfItem
-                disabled={isSavingOrder}
-                dragIntent={dragIntent}
-                item={item}
-                key={item.key}
-                onOpenBook={onOpenBook}
-                onOpenFolder={onOpenFolder}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      ) : (
-        <div className="empty-state" role="status">
-          <div className="empty-cover" aria-hidden="true" />
-          <p>书架是空的</p>
-        </div>
-      )}
+      <p
+        className="status-message library-operation-status"
+        role="status"
+        aria-live="polite"
+      >
+        {operationStatus}
+      </p>
+
+      <ContinueReadingSection
+        items={recentReadingItems}
+        onOpenBook={onOpenBook}
+        searchMode={libraryView.searchMode}
+      />
+
+      <LibraryViewToolbar
+        controlsDisabled={catalogControlsDisabled}
+        editable={libraryView.editable}
+        modeLabel={libraryView.modeLabel}
+        onSortChange={libraryView.selectSort}
+        onViewChange={libraryView.selectView}
+        resultCount={libraryView.resultCount}
+        sort={libraryView.sort}
+        sortOptions={libraryView.sortOptions}
+        view={libraryView.view}
+      />
+
+      <LibraryGrid
+        dragIntent={dragIntent}
+        editable={libraryView.editable}
+        hasLoadedShelf={hasLoadedShelf}
+        isLoading={isLoading}
+        isSavingOrder={isSavingOrder}
+        items={libraryView.visibleItems}
+        onClearSearch={() => restoreSearch(libraryView.clearSearch)}
+        onImport={() => fileInputRef.current?.click()}
+        onOpenBook={onOpenBook}
+        onOpenFolder={onOpenFolder}
+        query={libraryView.query}
+        view={libraryView.view}
+      />
     </section>
   );
 }

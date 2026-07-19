@@ -154,6 +154,16 @@ describe('sortLibraryItems', () => {
 describe('getLibrarySortOptions', () => {
   const optionValues = (options) => options.map((option) => option.value);
 
+  it('labels manual sorting for the all view as manual order', () => {
+    expect(getLibrarySortOptions({
+      view: LIBRARY_VIEW.ALL,
+      searchMode: false,
+    })[0]).toEqual({
+      value: LIBRARY_SORT.MANUAL,
+      label: '手动顺序',
+    });
+  });
+
   it('returns the fixed options for search and quick views', () => {
     expect(optionValues(getLibrarySortOptions({
       view: LIBRARY_VIEW.ALL,

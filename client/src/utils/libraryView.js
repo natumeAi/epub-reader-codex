@@ -185,7 +185,7 @@ export function getLibrarySortOptions({ view, searchMode }) {
   if (view === LIBRARY_VIEW.FOLDERS) return [];
   if (view === LIBRARY_VIEW.RECENT_ADDED) return automaticSortOptions;
   return [
-    { value: LIBRARY_SORT.MANUAL, label: '手动排序' },
+    { value: LIBRARY_SORT.MANUAL, label: '手动顺序' },
     ...automaticSortOptions,
   ];
 }

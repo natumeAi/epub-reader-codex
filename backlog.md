@@ -21,14 +21,14 @@
 ### P2：快捷视图默认排序测试未覆盖返回“全部”视图
 
 - 位置：`client/src/hooks/useLibraryView.test.jsx:60`
-- 状态：未处理
+- 状态：已处理（2026-07-19）
 - 场景：现有“applies each view default”用例只验证 `recent-added → recent-added` 与 `folders → manual`，没有从其他视图切回 `all` 并断言 `manual`，因此计划要求的 `all → manual` 转换缺少回归保护。
 - 后续建议：在原定向 hook 测试中加入从非 `all` 视图选择 `LIBRARY_VIEW.ALL` 的代表性断言。
 
 ### P2：搜索聚焦时切换标题排序缺少直接测试
 
 - 位置：`client/src/hooks/useLibraryView.test.jsx:25`
-- 状态：未处理
+- 状态：已处理（2026-07-19）
 - 场景：现有测试覆盖搜索快照与恢复，但没有直接断言从 `manual` 或 `folders` 聚焦搜索时，显示排序切换为 `title`；该计划要求缺少回归保护。
 - 后续建议：在原定向 hook 测试中加入一次 `focusSearch()` 后的 `sort === LIBRARY_SORT.TITLE` 代表性断言。
 
@@ -37,14 +37,14 @@
 ### P2：搜索组件的显示条件与错误禁用态缺少直接测试
 
 - 位置：`client/src/components/bookshelf/LibrarySearchBar.test.jsx:31`
-- 状态：未处理
+- 状态：已处理（2026-07-19）
 - 场景：测试验证了 clear/cancel 的点击回调，却未断言它们在不匹配状态下隐藏；catalog error 分支也未直接断言 input 被禁用，相关验收条件可能在重构后悄然回归。
 - 后续建议：在原定向测试中补充 clear/cancel 的反向显示断言，并在 error rerender 后断言 searchbox disabled。
 
 ### P2：工具栏 catalog 故障契约缺少组件级隔离测试
 
 - 位置：`client/src/components/bookshelf/LibraryViewToolbar.test.jsx:22`
-- 状态：未处理
+- 状态：已处理（2026-07-19）
 - 场景：P1 修复已通过 `LibraryHome.test.jsx` 集成覆盖 catalog 不可用时“全部”保持可用、其他目录视图与排序禁用，但 `LibraryViewToolbar` 自身仍没有 `controlsDisabled=true` 的隔离测试，组件级契约在重构时缺少直接保护。
 - 后续建议：在 toolbar 定向测试中断言“全部”enabled、“最近添加”“文件夹”和排序 select disabled。
 
@@ -65,7 +65,7 @@
 ### P2：只读书籍卡片缺少 reader 关闭动画定位属性
 
 - 位置：`client/src/components/bookshelf/ReadOnlyShelfItem.jsx:26`
-- 状态：未处理
+- 状态：已处理（2026-07-19）
 - 场景：`ReaderView` 通过 `[data-book-id] .book-cover` 定位关闭动画目标；只读搜索/派生视图卡片没有 `data-book-id`，从这些卡片打开书籍后会固定退化为 fallback 关闭动画。
 - 后续建议：只为只读书籍卡片补充 `data-book-id`，并增加打开后关闭时能找到原卡片的集成验证。
 
@@ -81,7 +81,7 @@
 ### P2：catalog 加载状态没有通过 live status 播报
 
 - 位置：`client/src/components/bookshelf/LibrarySearchBar.jsx:23`、`client/src/components/bookshelf/LibraryHome.jsx:108`
-- 状态：未处理
+- 状态：已处理（2026-07-19）
 - 场景：首次加载 catalog 或用户点击目录重试时，搜索框只通过 disabled placeholder 显示“正在加载搜索目录”，现有 `aria-live` 节点没有对应文本。
 - 后续建议：把 catalog loading 文本接入现有 live region，或为目录加载增加明确的 `role="status"`。
 
@@ -116,6 +116,6 @@
 ### P3：手动排序文案与规格不一致
 
 - 位置：`client/src/utils/libraryView.js:188`
-- 状态：未处理
+- 状态：已处理（2026-07-19）
 - 场景：“全部”视图排序入口显示“手动排序”，而设计和计划统一使用“手动顺序”。
 - 后续建议：将 label 统一为“手动顺序”，并更新对应展示断言。

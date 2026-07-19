@@ -48,8 +48,12 @@ describe('LibraryGrid', () => {
         onOpenFolder={onOpenFolder}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: '万历十五年，位于“历史”' }));
-    fireEvent.click(screen.getByRole('button', { name: '历史' }));
+    const readOnlyBook = screen.getByRole('button', { name: '万历十五年，位于“历史”' });
+    const readOnlyFolder = screen.getByRole('button', { name: '历史' });
+    expect(readOnlyBook).toHaveAttribute('data-book-id', '7');
+    expect(readOnlyFolder).not.toHaveAttribute('data-book-id');
+    fireEvent.click(readOnlyBook);
+    fireEvent.click(readOnlyFolder);
     expect(onOpenBook).toHaveBeenCalledWith(bookItem.book, expect.anything());
     expect(onOpenFolder).toHaveBeenCalledWith(folderItem.folder);
     expect(screen.getByRole('img', { name: '万历十五年' })).toHaveAttribute('decoding', 'async');

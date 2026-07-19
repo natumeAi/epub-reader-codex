@@ -24,6 +24,7 @@ export function ReadOnlyShelfItem({ item, onOpenBook, onOpenFolder }) {
       type="button"
       aria-label={label}
       data-readonly="true"
+      data-book-id={item.book?.id}
       onClick={handleClick}
     >
       <ShelfItemCover item={item} />

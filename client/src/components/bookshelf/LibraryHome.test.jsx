@@ -144,6 +144,12 @@ describe('LibraryHome composition', () => {
     expect(liveRegion).toBeEmptyDOMElement();
 
     rerender(
+      <DndContext><LibraryHome {...props} isCatalogLoading /></DndContext>,
+    );
+    expect(container.querySelector('.library-operation-status')).toBe(liveRegion);
+    expect(liveRegion).toHaveTextContent('正在加载搜索目录');
+
+    rerender(
       <DndContext>
         <LibraryHome {...props} isUploading uploadProgress="已上传 1 本" />
       </DndContext>,

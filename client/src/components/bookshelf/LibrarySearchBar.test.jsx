@@ -31,7 +31,11 @@ describe('LibrarySearchBar', () => {
   it('shows clear and cancel only for the matching state', () => {
     const onClear = vi.fn();
     const onCancel = vi.fn();
-    render(
+    const { rerender } = render(<LibrarySearchBar {...baseProps} />);
+    expect(screen.queryByRole('button', { name: '清空搜索' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '取消搜索' })).not.toBeInTheDocument();
+
+    rerender(
       <LibrarySearchBar
         {...baseProps}
         query="万历"
@@ -55,6 +59,7 @@ describe('LibrarySearchBar', () => {
     rerender(
       <LibrarySearchBar {...baseProps} catalogError="搜索目录加载失败" onRetry={onRetry} />,
     );
+    expect(screen.getByRole('searchbox')).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('搜索目录加载失败');
     fireEvent.click(screen.getByRole('button', { name: '重试加载搜索目录' }));
     expect(onRetry).toHaveBeenCalledTimes(1);

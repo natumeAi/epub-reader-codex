@@ -75,3 +75,47 @@
 - 状态：未处理
 - 场景：相对时间只在 React 重新渲染时计算；页面长时间保持打开且无其他状态变化时，分钟/小时文案会持续陈旧。
 - 后续建议：由区块级定时器或父组件传入周期更新的 `now`，并用假时钟覆盖跨分钟和跨小时边界。
+
+## 2026-07-19 — 2A–2D 整体规格与质量审查
+
+### P2：catalog 加载状态没有通过 live status 播报
+
+- 位置：`client/src/components/bookshelf/LibrarySearchBar.jsx:23`、`client/src/components/bookshelf/LibraryHome.jsx:108`
+- 状态：未处理
+- 场景：首次加载 catalog 或用户点击目录重试时，搜索框只通过 disabled placeholder 显示“正在加载搜索目录”，现有 `aria-live` 节点没有对应文本。
+- 后续建议：把 catalog loading 文本接入现有 live region，或为目录加载增加明确的 `role="status"`。
+
+### P2：操作失败被误呈现为书架加载错误
+
+- 位置：`client/src/components/bookshelf/LibraryHome.jsx:95`、`client/src/hooks/useShelfData.js:16`
+- 状态：未处理
+- 场景：上传部分失败、删除失败、创建/移入文件夹失败或保存顺序失败都写入共享 `error`；首页随后统一显示“重试加载书架”。
+- 后续建议：拆分 shelf-load error 与 operation error，只有真正的书架读取失败显示书架重试按钮。
+
+### P2：搜索输入框缺少可见键盘焦点
+
+- 位置：`client/src/styles/bookshelf.css:160`
+- 状态：未处理
+- 场景：键盘 Tab 聚焦搜索输入框时，CSS 清除了原生 outline，搜索容器也没有 `:focus-visible` 或 `:focus-within` 替代样式。
+- 后续建议：为输入框或搜索容器增加明确且不依赖颜色变化的焦点环，并补充键盘焦点验证。
+
+### P2：浏览器规格检查可能漏报延迟请求或非 ARIA 拖动注册
+
+- 位置：`client/scripts/verify-bookshelf-home.mjs:195`、`client/scripts/verify-bookshelf-home.mjs:235`
+- 状态：未处理
+- 场景：请求计数在本地 DOM 更新完成后立即关闭，可能漏掉 timer/debounce 后发出的 API 请求；拖动能力仅以 `aria-describedby` 数量作为代理，不能覆盖其他 listener 注册方式。
+- 后续建议：把请求观察窗口保持到一次网络静默，并用实际指针/键盘拖动尝试或更直接的 DnD 注册证据验证只读状态。
+
+### P2：430px 首屏断言没有要求完整三列书架
+
+- 位置：`client/scripts/bookshelf-verification-assertions.mjs:22`
+- 状态：未处理
+- 场景：只要首行存在一项且位于首屏内，断言就把它视为“一整排”；布局退化为单列时仍可能通过。
+- 后续建议：在 430px 场景明确要求首行至少三项及同排几何关系，并增加单列失败用例。
+
+### P3：手动排序文案与规格不一致
+
+- 位置：`client/src/utils/libraryView.js:188`
+- 状态：未处理
+- 场景：“全部”视图排序入口显示“手动排序”，而设计和计划统一使用“手动顺序”。
+- 后续建议：将 label 统一为“手动顺序”，并更新对应展示断言。

@@ -10,7 +10,7 @@ import {
 } from './pageTurnDiagnostics.js';
 
 const ALIGNMENT_EPSILON_PX = 1;
-const DEFAULT_PAGE_TURN_BACKEND = 'scroll';
+const DEFAULT_PAGE_TURN_BACKEND = 'compositor';
 const SUPPORTED_RTL_SCROLL_TYPES = new Set(['default', 'negative']);
 
 function unavailable(reason) {

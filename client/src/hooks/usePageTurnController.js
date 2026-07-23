@@ -8,6 +8,8 @@ import {
   getTapZone,
 } from '../utils/pageTurnGesture.js';
 
+const SYSTEM_NAVIGATION_EDGE_PX = 32;
+
 function pageDelta(direction) {
   return direction === 'next' ? 1 : -1;
 }
@@ -19,6 +21,15 @@ async function readCurrentLocation(rendition) {
 
 function isBoundary(location, direction) {
   return direction === 'next' ? Boolean(location?.atEnd) : Boolean(location?.atStart);
+}
+
+function startsInSystemNavigationEdge(event) {
+  const rect = event.currentTarget?.getBoundingClientRect?.();
+  if (!rect || rect.width <= 0) return false;
+
+  const offsetX = event.clientX - rect.left;
+  const edgeWidth = Math.min(SYSTEM_NAVIGATION_EDGE_PX, rect.width / 4);
+  return offsetX <= edgeWidth || offsetX >= rect.width - edgeWidth;
 }
 
 function createRelocationWait(rendition, predicate, timeoutMs) {
@@ -56,6 +67,7 @@ export function usePageTurnController({
   disabled = false,
   edgeRef,
   onCenterTap,
+  onNavigationSettled,
   reducedMotion = false,
   renditionRef,
 }) {
@@ -73,6 +85,10 @@ export function usePageTurnController({
     phaseRef.current = nextPhase;
     setPhaseState(nextPhase);
   }, []);
+
+  const publishCurrentProgress = useCallback(() => (
+    Promise.resolve(onNavigationSettled?.()).catch(() => false)
+  ), [onNavigationSettled]);
 
   const isCurrentOperation = useCallback((version) => (
     cancellationVersionRef.current === version
@@ -195,14 +211,17 @@ export function usePageTurnController({
     try {
       const navigate = nextDirection === 'next' ? rendition?.next : rendition?.prev;
       await Promise.resolve(navigate?.call(rendition));
-      return (await waiter.promise) ? 'completed' : 'failed';
+      const location = await waiter.promise;
+      if (!location) return 'failed';
+      await publishCurrentProgress();
+      return 'completed';
     } catch {
       waiter.cancel();
       return 'failed';
     } finally {
       if (relocationWaitRef.current === waiter) relocationWaitRef.current = null;
     }
-  }, [renditionRef]);
+  }, [publishCurrentProgress, renditionRef]);
 
   const recoverToReady = useCallback(async (operationVersion) => {
     let restored = false;
@@ -261,11 +280,13 @@ export function usePageTurnController({
     }
 
     adapter.end();
+    await publishCurrentProgress();
     return 'completed';
   }, [
     adapter,
     hideEdge,
     isCurrentOperation,
+    publishCurrentProgress,
     recoverToReady,
     renditionRef,
   ]);
@@ -330,15 +351,16 @@ export function usePageTurnController({
   ]);
 
   const handlePointerDown = useCallback((event) => {
+    const touch = event.pointerType === 'touch';
     if (
       disabled ||
       !['idle', 'basic'].includes(phaseRef.current) ||
-      (event.pointerType === 'touch' && event.isPrimary === false)
+      (touch && event.isPrimary === false) ||
+      (touch && startsInSystemNavigationEdge(event))
     ) {
       return;
     }
 
-    const touch = event.pointerType === 'touch';
     let session = null;
     let mode = touch ? 'basic' : 'tap';
     if (touch && !basicRef.current) {
@@ -551,6 +573,7 @@ export function usePageTurnController({
           await recoverToReady(operationVersion);
         } else {
           adapter.end();
+          await publishCurrentProgress();
         }
         if (relocationWaitRef.current === waiter) relocationWaitRef.current = null;
       } finally {
@@ -567,6 +590,7 @@ export function usePageTurnController({
     hideEdge,
     isCurrentOperation,
     onCenterTap,
+    publishCurrentProgress,
     renditionRef,
     recoverToReady,
     restoreReadyPhase,

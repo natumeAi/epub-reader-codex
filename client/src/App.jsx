@@ -17,9 +17,19 @@ import { useShelfData } from './hooks/useShelfData.js';
 
 const ReaderView = lazy(() => import('./components/reader/ReaderView.jsx'));
 
+function ReaderRestoreFallback() {
+  return (
+    <div className="reader-overlay reader-restore-fallback" role="status" aria-live="polite">
+      <span className="reader-loading-spinner" aria-hidden="true" />
+      <span>正在恢复阅读</span>
+    </div>
+  );
+}
+
 function App() {
   const fileInputRef = useRef(null);
   const {
+    clearReadingBookOrigin,
     clearReaderBookIfDeleted,
     closeReader,
     openBook,
@@ -128,13 +138,14 @@ function App() {
     openBook(book, originRect, { disabled: isSavingOrder });
   }
 
-  function handleReaderProgressSettled() {
+  const handleReaderProgressSettled = useCallback(() => {
     void Promise.all([loadRecentReading(), loadCatalog()]);
-  }
+  }, [loadCatalog, loadRecentReading]);
 
-  const handleBookUnavailable = useCallback(() => {
+  const handleBookUnavailable = useCallback((bookId) => {
+    clearReaderBookIfDeleted(bookId);
     void loadShelf();
-  }, [loadShelf]);
+  }, [clearReaderBookIfDeleted, loadShelf]);
 
   function handleOpenFolder(folder) {
     openFolderFromShelf(folder, {
@@ -194,12 +205,13 @@ function App() {
           renameDraft={folderNameDraft}
         />
         {readingBook && (
-          <Suspense fallback={null}>
+          <Suspense fallback={readingBookOrigin ? null : <ReaderRestoreFallback />}>
             <ReaderView
               book={readingBook}
               originRect={readingBookOrigin}
               onBookUnavailable={handleBookUnavailable}
               onClose={closeReader}
+              onOriginConsumed={clearReadingBookOrigin}
               onProgressSettled={handleReaderProgressSettled}
             />
           </Suspense>

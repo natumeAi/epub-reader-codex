@@ -41,6 +41,7 @@ export function ReaderView({
   originRect,
   onBookUnavailable,
   onClose,
+  onOriginConsumed = noop,
   onProgressSettled = noop,
 }) {
   const reducedMotion = useReducedMotion();
@@ -53,6 +54,9 @@ export function ReaderView({
   const isClosingRef = useRef(false);
   const pageEdgeRef = useRef(null);
   const cancelPageTurnRef = useRef(null);
+  const captureCurrentProgressRef = useRef(null);
+  const progressSettlementRef = useRef(null);
+  const unmountSettlementTimerRef = useRef(null);
   const cancelBeforeRenditionMutation = useCallback(() => {
     cancelPageTurnRef.current?.('settings');
   }, []);
@@ -73,6 +77,34 @@ export function ReaderView({
     originRect && !reducedMotion ? 1 : 0
   ));
   const [isFallbackClosing, setIsFallbackClosing] = useState(false);
+  const [isReaderLayoutReady, setIsReaderLayoutReady] = useState(() => (
+    !originRect || reducedMotion
+  ));
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootOverflow = root.style.overflow;
+    const previousRootOverscroll = root.style.overscrollBehavior;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyOverscroll = body.style.overscrollBehavior;
+
+    root.style.overflow = 'hidden';
+    root.style.overscrollBehavior = 'none';
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'none';
+
+    return () => {
+      root.style.overflow = previousRootOverflow;
+      root.style.overscrollBehavior = previousRootOverscroll;
+      body.style.overflow = previousBodyOverflow;
+      body.style.overscrollBehavior = previousBodyOverscroll;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (originRectRef.current) onOriginConsumed();
+  }, [onOriginConsumed]);
 
   const {
     pageProgressLabel,
@@ -120,7 +152,36 @@ export function ReaderView({
     flushProgress,
   } = useReadingProgressPersistence({ bookId: book?.id });
 
+  const settleReaderProgress = useCallback(() => {
+    if (progressSettlementRef.current) return progressSettlementRef.current;
+
+    const settlement = Promise.resolve(captureCurrentProgressRef.current?.())
+      .catch(() => false)
+      .then(() => flushProgress({ keepalive: true }))
+      .then(
+        () => onProgressSettled(),
+        () => onProgressSettled(),
+      );
+    progressSettlementRef.current = settlement;
+    return settlement;
+  }, [flushProgress, onProgressSettled]);
+
+  useEffect(() => {
+    if (unmountSettlementTimerRef.current !== null) {
+      clearTimeout(unmountSettlementTimerRef.current);
+      unmountSettlementTimerRef.current = null;
+    }
+
+    return () => {
+      unmountSettlementTimerRef.current = setTimeout(() => {
+        unmountSettlementTimerRef.current = null;
+        void settleReaderProgress();
+      }, 0);
+    };
+  }, [settleReaderProgress]);
+
   const {
+    captureCurrentProgress,
     currentHref,
     pageTurnAdapter,
     progress,
@@ -137,6 +198,7 @@ export function ReaderView({
     error,
     flushPendingReaderSettings,
     isClosingRef,
+    isLayoutReady: isReaderLayoutReady,
     isLoading,
     loadReaderSettings,
     markReaderSettingsLoaded,
@@ -149,6 +211,19 @@ export function ReaderView({
     setIsLoading,
     updatePageProgressFromLocation,
   });
+  captureCurrentProgressRef.current = captureCurrentProgress;
+
+  useEffect(() => {
+    const handleHistoryNavigation = () => {
+      cancelPageTurnRef.current?.('history');
+      if (isClosingRef.current) return;
+      isClosingRef.current = true;
+      void settleReaderProgress();
+    };
+
+    window.addEventListener('popstate', handleHistoryNavigation);
+    return () => window.removeEventListener('popstate', handleHistoryNavigation);
+  }, [settleReaderProgress]);
 
   const handleCenterTap = useCallback(() => {
     setChromeVisible((visible) => {
@@ -172,6 +247,7 @@ export function ReaderView({
     disabled: Boolean(activePanel) || isLoading || Boolean(error),
     edgeRef: pageEdgeRef,
     onCenterTap: handleCenterTap,
+    onNavigationSettled: captureCurrentProgress,
     reducedMotion,
     renditionRef,
   });
@@ -194,27 +270,38 @@ export function ReaderView({
   // Expand from the shelf cover rect (captured at click time) to full screen.
   // Skips animating entirely if no origin rect was captured.
   useEffect(() => {
-    if (reducedMotion) return undefined;
-    if (!originRectRef.current) return undefined;
+    if (reducedMotion || !originRectRef.current) {
+      setFlipTransitionEnabled(false);
+      setFlipTransform(null);
+      setCoverOpacity(0);
+      setIsReaderLayoutReady(true);
+      return undefined;
+    }
 
     let raf1 = null;
     let raf2 = null;
+    let completionRaf = null;
+    let timer = null;
+    setIsReaderLayoutReady(false);
     raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         setFlipTransitionEnabled(true);
         setFlipTransform(null);
         setCoverOpacity(0);
+        timer = setTimeout(() => {
+          setFlipTransitionEnabled(false);
+          completionRaf = requestAnimationFrame(() => {
+            setIsReaderLayoutReady(true);
+          });
+        }, READER_FLIP_ANIM_MS);
       });
     });
-
-    const timer = setTimeout(() => {
-      setFlipTransitionEnabled(false);
-    }, READER_FLIP_ANIM_MS);
 
     return () => {
       if (raf1) cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
-      clearTimeout(timer);
+      if (completionRaf) cancelAnimationFrame(completionRaf);
+      if (timer) clearTimeout(timer);
     };
   }, [reducedMotion]);
 
@@ -222,11 +309,7 @@ export function ReaderView({
     cancelPageTurnRef.current?.('close');
     if (isClosingRef.current) return;
     isClosingRef.current = true;
-    const progressFlush = flushProgress({ keepalive: true });
-    void Promise.resolve(progressFlush).then(
-      () => onProgressSettled(),
-      () => onProgressSettled(),
-    );
+    void settleReaderProgress();
     if (reducedMotion) {
       onClose();
       return;
@@ -250,7 +333,7 @@ export function ReaderView({
       setIsFallbackClosing(true);
       setTimeout(onClose, READER_FALLBACK_ANIM_MS);
     }
-  }, [book?.id, flushProgress, onClose, onProgressSettled, reducedMotion]);
+  }, [book?.id, onClose, reducedMotion, settleReaderProgress]);
 
   const { dialogRef, onKeyDown: onDialogKeyDown } = useModalDialog({
     initialFocusRef: readerInitialFocusRef,

@@ -27,10 +27,46 @@ function parseBookId(value) {
   return bookId;
 }
 
-function getProgress(db, bookId) {
+function normalizeBookIdentityValue(value) {
+  return String(value ?? '').normalize('NFC').trim().toLocaleLowerCase('en-US');
+}
+
+function bookContentKey(book) {
+  const fileSize = Number(book?.file_size);
+  const identifier = normalizeBookIdentityValue(book?.identifier);
+  const hasUsefulIdentifier = identifier && !['none', 'unknown', 'n/a'].includes(identifier);
+
+  if (hasUsefulIdentifier) {
+    return `identifier:${identifier}:${fileSize}`;
+  }
+
+  return `file:${normalizeBookIdentityValue(book?.file_name)}:${fileSize}`;
+}
+
+function getExactProgress(db, bookId) {
   return db
     .prepare('SELECT * FROM reading_progress WHERE book_id = ?')
     .get(bookId) ?? null;
+}
+
+function getLatestEquivalentProgress(db, bookId) {
+  const targetBook = db
+    .prepare('SELECT id, identifier, file_name, file_size FROM books WHERE id = ?')
+    .get(bookId);
+  if (!targetBook) return null;
+
+  const targetContentKey = bookContentKey(targetBook);
+  const candidates = db
+    .prepare(
+      `SELECT rp.*, b.identifier, b.file_name, b.file_size
+       FROM reading_progress rp
+       INNER JOIN books b ON b.id = rp.book_id
+       WHERE b.file_size = ?
+       ORDER BY rp.updated_at DESC, rp.book_id DESC`,
+    )
+    .all(targetBook.file_size);
+
+  return candidates.find((row) => bookContentKey(row) === targetContentKey) ?? null;
 }
 
 function formatProgress(row) {
@@ -61,13 +97,22 @@ router.get('/recent', (req, res, next) => {
                 rp.updated_at AS progress_updated_at
          FROM reading_progress rp
          INNER JOIN books b ON b.id = rp.book_id
-         ORDER BY rp.updated_at DESC, rp.book_id DESC
-         LIMIT 10`,
+         ORDER BY rp.updated_at DESC, rp.book_id DESC`,
       )
       .all();
+    const seenContentKeys = new Set();
+    const recentRows = [];
+
+    for (const row of rows) {
+      const contentKey = bookContentKey(row);
+      if (seenContentKeys.has(contentKey)) continue;
+      seenContentKeys.add(contentKey);
+      recentRows.push(row);
+      if (recentRows.length === 10) break;
+    }
 
     res.json({
-      items: rows.map((row) => ({
+      items: recentRows.map((row) => ({
         book: formatBook(row),
         progress: formatProgress({
           book_id: row.progress_book_id,
@@ -89,9 +134,12 @@ router.get('/:bookId', (req, res, next) => {
   try {
     const db = requireDatabase(req);
     const bookId = parseBookId(req.params.bookId);
-    const row = getProgress(db, bookId);
+    const row = getLatestEquivalentProgress(db, bookId);
+    const progress = formatProgress(row);
 
-    res.json({ progress: formatProgress(row) });
+    res.json({
+      progress: progress ? { ...progress, bookId } : null,
+    });
   } catch (err) {
     next(err);
   }
@@ -122,7 +170,7 @@ router.put('/:bookId', (req, res, next) => {
 
     db.prepare(`
       INSERT INTO reading_progress (book_id, cfi, progress, chapter_href, chapter_label, updated_at)
-      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))
       ON CONFLICT(book_id) DO UPDATE SET
         cfi = excluded.cfi,
         progress = excluded.progress,
@@ -131,7 +179,7 @@ router.put('/:bookId', (req, res, next) => {
         updated_at = excluded.updated_at
     `).run(bookId, cfi ?? null, progressValue, chapterHref ?? null, chapterLabel ?? null);
 
-    const row = getProgress(db, bookId);
+    const row = getExactProgress(db, bookId);
 
     res.json({ progress: formatProgress(row) });
   } catch (err) {

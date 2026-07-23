@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js",
-    "test": "node --test --test-concurrency=1"
+    "start": "node src/index.js"
   },
   "dependencies": {
     "adm-zip": "^0.6.0",

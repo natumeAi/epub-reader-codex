@@ -267,8 +267,6 @@ http://你的设备IP:3000
 - 当前格式：EPUB
 - 数据位置：完全由部署者挂载并管理
 
-更完整的产品约束与开发记录见 [PROJECT.md](./PROJECT.md)。
-
 ---
 
 <div align="center">

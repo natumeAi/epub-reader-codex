@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Epub from 'epubjs';
 import { getReadingProgress } from '../api/readingApi.js';
 import { createEpubPageTurnAdapter } from '../utils/epubPageTurnAdapter.js';
+import { addTocProgress, findCurrentTocItem, prepareTocItems } from '../utils/epubToc.js';
 import { readProgressOutbox, selectProgressForRelocation } from '../utils/readingProgress.js';
 import { getReaderPageGap } from './useReaderSettings.js';
 
@@ -229,6 +230,7 @@ export function useEpubRendition({
   const [progress, setProgress] = useState(0);
   const [toc, setToc] = useState([]);
   const [currentHref, setCurrentHref] = useState(null);
+  const [currentChapter, setCurrentChapter] = useState(null);
   const [readerReloadKey, setReaderReloadKey] = useState(0);
   const [pageTurnAdapter, setPageTurnAdapter] = useState(null);
   const pageTurnAdapterRef = useRef(null);
@@ -257,6 +259,8 @@ export function useEpubRendition({
     let handleRelocated;
     let reapplyReaderSettingsToView;
     let adapter = null;
+    let activeToc = [];
+    let latestHref = null;
     let isInitializing = true;
     loadStartedAtRef.current = Date.now();
     loadingStateRef.current = true;
@@ -265,6 +269,8 @@ export function useEpubRendition({
     setError('');
     resetPageProgress();
     setToc([]);
+    setCurrentHref(null);
+    setCurrentChapter(null);
     resetReaderSettingsLoad();
 
     (async () => {
@@ -351,6 +357,16 @@ export function useEpubRendition({
           loadedReaderSettings = settingsResult.value;
         }
 
+        const syncCurrentChapter = (cfi = currentCfiRef.current, href = latestHref) => {
+          const chapter = findCurrentTocItem(activeToc, {
+            book: epubBook,
+            cfi,
+            href,
+          });
+          setCurrentChapter(chapter);
+          return chapter;
+        };
+
         const updateFromLocation = (location, options = {}) => {
           const {
             allowUnstable = false,
@@ -371,15 +387,17 @@ export function useEpubRendition({
           lastValidProgress = progressValue;
           progressRef.current = progressValue;
           currentCfiRef.current = cfi;
+          latestHref = location.start.href || null;
+          const chapter = syncCurrentChapter(cfi, latestHref);
           setProgress(progressValue);
           updatePageProgressFromLocation(location);
-          setCurrentHref(location.start.href || null);
+          setCurrentHref(latestHref);
           if (persist) {
             enqueueProgress({
               cfi,
               progress: progressValue,
-              chapterHref: location.start.href || null,
-              chapterLabel: null,
+              chapterHref: chapter?.href || latestHref,
+              chapterLabel: chapter?.label || null,
             });
           }
           return true;
@@ -465,15 +483,32 @@ export function useEpubRendition({
         loadingStateRef.current = false;
         setIsLoading(false);
 
-        epubBook.loaded.navigation.then((nav) => {
-          if (!destroyed) setToc(nav?.toc || []);
-        }).catch(() => {});
+        const navigationPromise = epubBook.loaded.navigation.then((nav) => {
+          const nextToc = prepareTocItems(nav?.toc, '', {
+            book: epubBook,
+            navigationPath: epubBook.packaging?.navPath || epubBook.packaging?.ncxPath || '',
+          });
+          if (!destroyed) {
+            activeToc = nextToc;
+            setToc(nextToc);
+            syncCurrentChapter();
+          }
+          return nextToc;
+        }).catch(() => []);
 
         epubBook.locations.generate(1024).then(async () => {
           if (destroyed) return;
           locationsReady = true;
           const currentLocation = await Promise.resolve(rendition.currentLocation?.());
           updateFromLocation(currentLocation, { persist: false });
+          const preparedToc = await navigationPromise;
+          const nextToc = await addTocProgress(preparedToc, epubBook, {
+            shouldStop: () => destroyed,
+          });
+          if (destroyed) return;
+          activeToc = nextToc;
+          setToc(nextToc);
+          syncCurrentChapter();
         }).catch(() => {
           locationsReady = false;
         });
@@ -782,6 +817,7 @@ export function useEpubRendition({
 
   return {
     captureCurrentProgress,
+    currentChapter,
     currentHref,
     pageTurnAdapter,
     progress,

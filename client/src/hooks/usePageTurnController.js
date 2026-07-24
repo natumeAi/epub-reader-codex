@@ -68,6 +68,7 @@ export function usePageTurnController({
   edgeRef,
   onCenterTap,
   onNavigationSettled,
+  onPageTurnCommitted,
   reducedMotion = false,
   renditionRef,
 }) {
@@ -89,6 +90,10 @@ export function usePageTurnController({
   const publishCurrentProgress = useCallback(() => (
     Promise.resolve(onNavigationSettled?.()).catch(() => false)
   ), [onNavigationSettled]);
+
+  const syncCommittedPage = useCallback(() => (
+    Promise.resolve(onPageTurnCommitted?.()).catch(() => false)
+  ), [onPageTurnCommitted]);
 
   const isCurrentOperation = useCallback((version) => (
     cancellationVersionRef.current === version
@@ -168,8 +173,9 @@ export function usePageTurnController({
     relocationWaitRef.current = null;
     finishPointer();
     adapter?.cancel({ reason, restoreOrigin: true });
+    void syncCommittedPage();
     restoreReadyPhase();
-  }, [adapter, finishPointer, restoreReadyPhase]);
+  }, [adapter, finishPointer, restoreReadyPhase, syncCommittedPage]);
 
   useEffect(() => {
     cancellationVersionRef.current += 1;
@@ -211,17 +217,22 @@ export function usePageTurnController({
     try {
       const navigate = nextDirection === 'next' ? rendition?.next : rendition?.prev;
       await Promise.resolve(navigate?.call(rendition));
+      void syncCommittedPage();
       const location = await waiter.promise;
-      if (!location) return 'failed';
+      if (!location) {
+        void syncCommittedPage();
+        return 'failed';
+      }
       await publishCurrentProgress();
       return 'completed';
     } catch {
       waiter.cancel();
+      void syncCommittedPage();
       return 'failed';
     } finally {
       if (relocationWaitRef.current === waiter) relocationWaitRef.current = null;
     }
-  }, [publishCurrentProgress, renditionRef]);
+  }, [publishCurrentProgress, renditionRef, syncCommittedPage]);
 
   const recoverToReady = useCallback(async (operationVersion) => {
     let restored = false;
@@ -235,8 +246,9 @@ export function usePageTurnController({
     clearEdge();
     basicRef.current = !capability?.available;
     setPhase(basicRef.current ? 'basic' : 'idle');
+    void syncCommittedPage();
     return restored;
-  }, [adapter, clearEdge, isCurrentOperation, setPhase]);
+  }, [adapter, clearEdge, isCurrentOperation, setPhase, syncCommittedPage]);
 
   const runEnhancedNavigation = useCallback(async (
     nextDirection,
@@ -272,6 +284,10 @@ export function usePageTurnController({
       return 'ignored';
     }
 
+    // The destination page is already visible here, while epub.js may not
+    // publish its relocated event until a later frame. Refresh the page label
+    // directly from the manager geometry so it changes with the visual page.
+    void syncCommittedPage();
     const location = await waiter.promise;
     if (!isCurrentOperation(operationVersion)) return 'ignored';
     if (!location || !adapter.isStableAt(delta)) {
@@ -289,6 +305,7 @@ export function usePageTurnController({
     publishCurrentProgress,
     recoverToReady,
     renditionRef,
+    syncCommittedPage,
   ]);
 
   const turnPage = useCallback(async (nextDirection, interaction = {}) => {
@@ -566,6 +583,7 @@ export function usePageTurnController({
           }
           return;
         }
+        void syncCommittedPage();
         const location = await waiter.promise;
         if (!isCurrentOperation(operationVersion)) return;
         if (!location || !adapter.isStableAt(delta)) {
@@ -596,6 +614,7 @@ export function usePageTurnController({
     restoreReadyPhase,
     runBasicNavigation,
     setPhase,
+    syncCommittedPage,
     turnPage,
     writeDragFrame,
   ]);

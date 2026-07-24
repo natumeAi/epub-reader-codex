@@ -182,6 +182,7 @@ export function ReaderView({
 
   const {
     captureCurrentProgress,
+    currentChapter,
     currentHref,
     pageTurnAdapter,
     progress,
@@ -248,6 +249,7 @@ export function ReaderView({
     edgeRef: pageEdgeRef,
     onCenterTap: handleCenterTap,
     onNavigationSettled: captureCurrentProgress,
+    onPageTurnCommitted: refreshCurrentPageProgress,
     reducedMotion,
     renditionRef,
   });
@@ -422,9 +424,14 @@ export function ReaderView({
     >
       <ReaderTopBar
         onClose={handleCloseClick}
-        progress={progress}
         title={book?.title}
       />
+
+      {!isLoading && !error && currentChapter?.label && (
+        <div className="reader-chapter-title" aria-live="polite">
+          {currentChapter.label}
+        </div>
+      )}
 
       {book?.coverUrl && (
         <img
@@ -480,6 +487,15 @@ export function ReaderView({
       )}
 
       {!isLoading && !error && (
+        <span
+          className="reader-book-progress"
+          aria-label={`书籍进度 ${Math.round(progress * 100)}%`}
+        >
+          {Math.round(progress * 100)}%
+        </span>
+      )}
+
+      {!isLoading && !error && (
         <ReaderBottomBar
           activePanel={activePanel}
           onToggleSettings={handleToggleSettingsPanel}
@@ -492,6 +508,7 @@ export function ReaderView({
       )}
       {activePanel === 'toc' && (
         <TocPanel
+          currentChapterId={currentChapter?.chapterId}
           currentHref={currentHref}
           onSelect={goToHref}
           toc={toc}

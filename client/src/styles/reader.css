@@ -74,6 +74,12 @@
   transition: transform 0.25s ease, opacity 0.25s ease;
 }
 
+.reader-header::after {
+  width: 32px;
+  flex-shrink: 0;
+  content: "";
+}
+
 .reader-chrome-hidden .reader-header {
   transform: translateY(-100%);
   opacity: 0;
@@ -113,14 +119,24 @@
   font-weight: 600;
   color: var(--reader-text);
   text-overflow: ellipsis;
+  text-align: center;
   white-space: nowrap;
 }
 
-.reader-progress-label {
-  flex-shrink: 0;
-  font-size: 13px;
+.reader-chapter-title {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: max(48px, calc(16px + env(safe-area-inset-left)));
+  right: max(48px, calc(16px + env(safe-area-inset-right)));
+  z-index: 2;
+  overflow: hidden;
   color: var(--reader-text-secondary);
-  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .reader-body {
@@ -299,14 +315,12 @@
   color: var(--accent);
 }
 
-.reader-page-progress {
+.reader-page-progress,
+.reader-book-progress {
   position: absolute;
-  left: 50%;
   bottom: calc(10px + env(safe-area-inset-bottom));
   z-index: 3;
-  min-width: 64px;
   padding: 2px 8px;
-  transform: translateX(-50%);
   color: var(--reader-text-secondary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -314,6 +328,18 @@
   text-align: center;
   white-space: nowrap;
   pointer-events: none;
+}
+
+.reader-page-progress {
+  left: 50%;
+  min-width: 64px;
+  transform: translateX(-50%);
+}
+
+.reader-book-progress {
+  right: calc(12px + env(safe-area-inset-right));
+  min-width: 40px;
+  text-align: right;
 }
 
 .reader-bb-icon {
@@ -436,7 +462,9 @@
 }
 
 .reader-toc-entry {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 16px;
   width: 100%;
   padding: 12px 20px;
   border: 0;
@@ -449,14 +477,34 @@
 }
 
 .reader-toc-subentry {
-  padding-left: 36px;
   font-size: 14px;
   color: var(--reader-text-secondary);
 }
 
+.reader-toc-entry-label {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.reader-toc-entry-progress {
+  min-width: 36px;
+  flex-shrink: 0;
+  color: var(--reader-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .reader-toc-entry.is-current {
+  background: var(--reader-active-bg);
   color: var(--accent);
   font-weight: 600;
+}
+
+.reader-toc-entry.is-current .reader-toc-entry-progress {
+  color: currentColor;
 }
 
 .reader-settings-content {
